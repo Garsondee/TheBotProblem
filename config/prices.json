@@ -1,0 +1,39 @@
+{
+  "$comment": "Anthropic prices in US dollars per MILLION tokens. OpenRouter prices are fetched live (npm run prices) into openrouter-prices.json. Re-check these against Anthropic's pricing page before the first paid run of each milestone, and update checkedOn.",
+  "checkedOn": "2026-11-19",
+  "sources": [
+    "Spec (docs/SPEC.md, section 2): Anthropic's pricing page, checked 2026-11-19.",
+    "Claude API reference bundled with Claude Code (cached 2026-11-03): same input and output prices; Haiku 5.5 costs $0.50/$2.50 above 100K-token prompts (5x); minimum cacheable prefix 512 tokens on both models; Sonnet 5.5 cache reads $0.10.",
+    "1-hour cache writes are priced at Anthropic's rule of 2x input. We never ask for them; the ledger flags any that appear."
+  ],
+  "models": {
+    "claude-haiku-5-5": {
+      "provider": "anthropic",
+      "input": 0.1,
+      "output": 0.5,
+      "cacheWrite5m": 0.125,
+      "cacheWrite1h": 0.2,
+      "cacheRead": 0.01,
+      "minCacheableTokens": 512,
+      "longContext": { "aboveTokens": 100000, "multiplier": 5 },
+      "notes": [
+        "Thinks by default (adaptive thinking, effort medium). Bot calls must send thinking: {type: 'disabled'}, which is allowed at effort high or below.",
+        "Non-default temperature, top_p or top_k return a 400 error.",
+        "No assistant prefill: use structured outputs for the JSON reply."
+      ]
+    },
+    "claude-sonnet-5-5": {
+      "provider": "anthropic",
+      "input": 2.0,
+      "output": 10.0,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4.0,
+      "cacheRead": 0.1,
+      "minCacheableTokens": 512,
+      "notes": [
+        "thinking: {type: 'disabled'} returns a 400 error. Turn thinking off with {type: 'between_tools'} at effort high or below.",
+        "Its long-context price step isn't confirmed; prompts are kept far below 100K tokens anyway."
+      ]
+    }
+  }
+}

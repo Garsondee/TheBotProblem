@@ -1,0 +1,23 @@
+{
+  "$comment": "The spec's optional upgrade: Claude Sonnet 5.5 in seat A. A game costs about 3x the default cast, so a paid run needs a higher run cap than the $1.50 default.",
+  "name": "sonnet-upgrade",
+  "seats": [
+    { "botId": "A", "model": "claude-sonnet-5-5", "provider": "anthropic", "caching": "explicit", "capUsd": 2.5 },
+    { "botId": "B", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" },
+    { "botId": "C", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" },
+    {
+      "botId": "D",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "openrouter",
+      "caching": "automatic",
+      "priceCeiling": { "input": 0.15, "output": 0.3 }
+    },
+    {
+      "botId": "E",
+      "model": "google/gemini-3.1-flash-lite",
+      "provider": "openrouter",
+      "caching": "automatic",
+      "priceCeiling": { "input": 0.25, "output": 1.5 }
+    }
+  ]
+}

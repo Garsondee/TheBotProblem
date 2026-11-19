@@ -1,0 +1,11 @@
+{
+  "$comment": "All-Haiku cast for headless experiments (persona evolution, forks; spec section 2). Uses only Claude credit.",
+  "name": "haiku",
+  "seats": [
+    { "botId": "A", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" },
+    { "botId": "B", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" },
+    { "botId": "C", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" },
+    { "botId": "D", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" },
+    { "botId": "E", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  // TypeScript is only used for type-checking (`npm run typecheck`).
+  // Code runs directly from .ts files through tsx (scripts) and Vitest (tests),
+  // so nothing is ever compiled to a dist/ folder.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "strict": true,
+    // Makes `array[i]` and `record[key]` possibly undefined, so the compiler
+    // forces us to handle "not there" — important for tile grids and bot maps.
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    // Type-only imports must say `import type`, which makes it obvious
+    // which imports are real code and which are just shapes.
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  },
+  "include": ["budget", "harness", "engine", "game", "agents", "prompts", "analysis", "voice", "tests", "vitest.config.ts"]
+}

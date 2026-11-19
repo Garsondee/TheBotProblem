@@ -1,0 +1,35 @@
+{
+  "$comment": "Game-wide settings. The budget block is what stands between a bug and your credit: change it deliberately.",
+  "budget": {
+    "runCapUsd": 1.5,
+    "perBotCapUsd": 0.75,
+    "globalCapUsd": {
+      "anthropic": 8.5,
+      "openrouter": 5.5
+    },
+    "promptTokenHardLimit": 60000,
+    "spendFile": "spend/global-spend.json"
+  },
+  "maxTokens": {
+    "turn": 450,
+    "reflection": 1500,
+    "diary": 200,
+    "finalMessage": 350
+  },
+  "estimate": {
+    "$comment": "Token counts from the spec, used until milestone 3 can measure real prompts built from mock game state.",
+    "levels": 6,
+    "roundsPerLevel": 12,
+    "turnCallsPerRound": 3,
+    "turnPromptTokens": 6800,
+    "turnCacheableTokens": 5000,
+    "turnOutputTokens": 400,
+    "reflectionPromptTokens": 8000,
+    "reflectionOutputTokens": 1000,
+    "diaryPromptTokens": 6000,
+    "diaryOutputTokens": 150,
+    "finalMessagePromptTokens": 6500,
+    "finalMessageOutputTokens": 280,
+    "cacheWritesPerGame": 10
+  }
+}

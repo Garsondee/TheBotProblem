@@ -1,0 +1,6 @@
+# Store text files with LF line endings, even on Windows.
+# Replays must be byte-for-byte reproducible, so committed fixtures and expected
+# outputs must not have their line endings rewritten on checkout.
+* text=auto eol=lf
+*.png binary
+*.wav binary

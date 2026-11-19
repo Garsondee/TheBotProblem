@@ -1,0 +1,20 @@
+# Secrets: the API keys live in .env, which must never be committed.
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+dist/
+
+# Generated game runs (replays, raw responses, ledgers, audio). Big and personal.
+runs/
+
+# Lifetime spend record and the paid-run lock (see budget/globalSpend.ts).
+# Kept out of runs/ on purpose, so tidying old runs can never reset the global cap.
+spend/
+
+# Editor and OS clutter
+.DS_Store
+Thumbs.db
+*.log
