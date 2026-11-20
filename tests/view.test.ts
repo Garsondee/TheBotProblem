@@ -24,6 +24,15 @@ function viewOf(bot: string, log: EventLog, world = startWorld(level)) {
   return buildView({ bot, phase: 'talk', room, world, observation: observe(world, bot), events: log.forBot(bot), names, score });
 }
 
+describe('being stuck', () => {
+  it('is said in the view once a bot has hardly moved for two rounds, and not before', () => {
+    const world = startWorld(level);
+    const at = (stillRounds: number) => buildView({ bot: 'A', phase: 'declare', room, world, observation: observe(world, 'A'), events: [], names, score, stillRounds }).text;
+    expect(at(1)).not.toContain('hardly moved');
+    expect(at(3)).toContain('You have hardly moved for 3 rounds: less than half a tile in each.');
+  });
+});
+
 describe("a bot's view", () => {
   const when: When = { levelIndex: 0, level: 'test', round: 2, phase: 'declare' };
   const log = new EventLog();

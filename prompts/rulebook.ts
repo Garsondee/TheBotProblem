@@ -62,7 +62,7 @@ export const GAME_COMMANDS: readonly string[] = [
   'stand_on_plate or stand_on_plate(id): walk onto the nearest plate on what you stand on (within 8 tiles) and stop on it',
   'enter_exit or enter_exit(id): go through the exit you are standing at; you leave the room and wait for it to end',
   'wait: stay where you are for this slot',
-  'block: stand your ground for this slot, on purpose (like wait)',
+  'block: stand your ground for this slot, on purpose: until it ends no bot can walk or climb through you (otherwise like wait)',
   'trip(bot): trip a bot right beside you, by surprise; it loses its next command slot',
   'steal(bot): take 1 coin from a bot right beside you',
   'give(bot, coins): give coins to a bot right beside you',
@@ -91,7 +91,7 @@ WHERE THINGS ARE
 - Each round you get a map of what you can see from where you stand. You see about 10 tiles from your eyes; walls and closed doors block sight. Tiles you can't see are shown as ?.
 
 A STANDARD BOT (the rulebook's numbers)
-- 0.75 tiles wide, 1.5 tiles tall. Bots can't pass through each other, but a bot can stand on another bot's head (1.5 tiles up).
+- 0.75 tiles wide, 1.5 tiles tall. You walk straight through a bot that is standing still or coming the other way, and climb past one on a ladder. You can't get through a bot moving the same way as you (bots moving the same way push as one), or one standing its ground on purpose (the block command). Anything falling lands on a bot's head: a bot can stand on another bot's head (1.5 tiles up).
 - Running: up to 6 tiles a second; it takes 2.5 tiles of running to reach full speed.
 - Jumping: a full jump lifts the feet 2.2 tiles, a short jump 1.0 tile. A ceiling ends the rise. You steer in the air.
 - On flat ground a full jump from a standstill carries about ${j.standingFull} tiles sideways (a short one about ${j.standingShort}); after a full 3-tile run-up, about ${j.runUpFull} tiles (a short one about ${j.runUpShort}).

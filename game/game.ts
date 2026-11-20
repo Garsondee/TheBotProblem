@@ -42,6 +42,7 @@ import type { BotStats, StatRanges } from '../engine/stats';
 import { rollStatsForLevels } from '../engine/validate';
 import type { World } from '../engine/world';
 import { botById, cloneWorld } from '../engine/world';
+import { UNITS_PER_TILE } from '../engine/constants';
 import { bountyText, INTRO_QUESTIONS, introText, JUDGE_SYSTEM, judgeText, payoutText, praiseText, verdictOf } from '../prompts/host';
 import { DIARY_INSTRUCTIONS, FINAL_REFLECTION_INSTRUCTIONS, identityBlock, REFLECTION_INSTRUCTIONS, rulebook } from '../prompts/rulebook';
 import type { EventBody, GameEvent, Phase, When } from './events';
@@ -683,6 +684,8 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
     world.dice = diceSeed(`${opts.seed}|${li}|${level.id}`);
     for (const b of world.bots) b.purse = wallets[b.id] ?? 0;
     const roomStartWallet = { ...wallets };
+    // The last round in which each bot moved half a tile or more (0: not yet in this room).
+    const movedIn: Record<string, number> = Object.fromEntries(botIds.map((id) => [id, 0]));
     const renamedHere = new Set<string>();
     const ghosts = new Set<string>();
     const exileCalledHere = new Set<string>();
@@ -799,6 +802,7 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
             events: log.forBot(bot),
             names,
             score: { coins: scores[bot]?.coins ?? 0, roomsEscaped: scores[bot]?.roomsEscaped ?? 0 },
+            stillRounds: round - 1 - (movedIn[bot] ?? 0),
             social: socialView(bot, exileCalls),
           });
           return {
@@ -872,6 +876,10 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
       noteOrder({ levelIndex: li, level: level.id, round, phase: 'resolve' });
       const out = resolvePhase(world, queues, { trace: true, slotWorlds: true, ...(turnOrder === 'name' ? { order: orderNow() } : {}) });
       world = out.world;
+      for (const b of world.bots) {
+        const was = botById(before, b.id);
+        if (Math.hypot(b.x - was.x, b.y - was.y) >= UNITS_PER_TILE / 2) movedIn[b.id] = round;
+      }
       played = round;
       const seen = witness(before, out, botIds);
       const rw: When = { levelIndex: li, level: level.id, round, phase: 'resolve' };

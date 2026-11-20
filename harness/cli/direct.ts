@@ -4,19 +4,25 @@
  * npm run direct -- <run> --free      the free Director: flags and plain narration, no model
  * npm run direct -- <run> --fresh     pay again even for calls already recorded
  * npm run direct -- <run> --yes       skip the typed yes (only when the yes was already given)
+ * npm run direct -- <run> --spoken-only   keep the story; make only its spoken script (paid, small)
  *
  * <run> is a folder in runs/ (its name, or runs/<name>). The story goes to
- * runs/<name>/story.json, which the viewer plays as its Story mode. The
- * Director's replies are recorded in runs/<name>/director/, so directing the
- * same game again costs nothing unless something it reads has changed.
+ * runs/<name>/story.json, which the viewer plays as its Story mode, and its
+ * spoken script (analysis/spoken.ts: every bot line it shows, reworded for the
+ * ear, meaning kept) to runs/<name>/spoken.json, which npm run voice reads.
+ * The Director's replies are recorded in runs/<name>/director/, so directing
+ * the same game again costs nothing unless something it reads has changed.
  */
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import type { DirectorCall, DirectorModels, RoomNotes } from '../../analysis/director';
+import type { DirectorCall, DirectorCaller, DirectorModels, RoomNotes } from '../../analysis/director';
 import { directStory, EDIT_JSON_SCHEMA, editPrompt, freeStory, parseRoomNotes, ROOM_JSON_SCHEMA, roomPrompt, storyScript } from '../../analysis/director';
 import { flagRounds } from '../../analysis/material';
+import type { StoryLine } from '../../analysis/spoken';
+import { parseSpoken, SPOKEN_BATCH, SPOKEN_JSON_SCHEMA, SPOKEN_SYSTEM, spokenPrompt, storyLines } from '../../analysis/spoken';
+import { buildScript } from '../../viewer/src/script';
 import { ClaudeClient } from '../../agents/models';
 import { usd, usd4 } from '../../budget/format';
 import { GlobalSpend, readLifetimeSpend } from '../../budget/globalSpend';
@@ -36,6 +42,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     'dry-run': { type: 'boolean', default: false },
+    'spoken-only': { type: 'boolean', default: false },
     free: { type: 'boolean', default: false },
     fresh: { type: 'boolean', default: false },
     yes: { type: 'boolean', default: false },
@@ -59,6 +66,45 @@ const script = storyScript(game);
 const storyPath = join(runDir, 'story.json');
 const directorDir = join(runDir, 'director');
 const callsFile = join(directorDir, 'calls.jsonl');
+const spokenPath = join(runDir, 'spoken.json');
+const spokenOnly = values['spoken-only'];
+const existingStory: Story | null = existsSync(storyPath) ? (JSON.parse(readFileSync(storyPath, 'utf8')) as Story) : null;
+if (spokenOnly && !existingStory) {
+  warn('There is no story to speak yet: direct the game first (npm run direct -- <run>).');
+  process.exit(1);
+}
+
+/** The spoken script's calls for a story: its bot lines, in batches (analysis/spoken.ts). */
+function spokenCalls(story: Story, model: string, maxTokens: number): { calls: DirectorCall[]; batches: StoryLine[][] } {
+  const lines = storyLines(game, story, buildScript(game, { thoughts: story.thoughts }));
+  const batches: StoryLine[][] = [];
+  for (let i = 0; i < lines.length; i += SPOKEN_BATCH) batches.push(lines.slice(i, i + SPOKEN_BATCH));
+  const calls = batches.map((b, i): DirectorCall => ({ stage: 'spoken', room: i, model, system: [{ text: SPOKEN_SYSTEM }], user: spokenPrompt(game, b), maxTokens, schema: SPOKEN_JSON_SCHEMA }));
+  return { calls, batches };
+}
+
+/** Make the story's spoken script and save it beside the story. Returns how many lines were reworded. */
+async function saveSpoken(story: Story, call: DirectorCaller, model: string, maxTokens: number): Promise<number> {
+  const { calls, batches } = spokenCalls(story, model, maxTokens);
+  const lines: Record<string, { bot: string; original: string; spoken: string }> = {};
+  /** One batch; if nothing usable comes back (a refusal, a reply that doesn't parse), each half once on its own. */
+  const speak = async (c: DirectorCall, batch: StoryLine[], halves: boolean): Promise<Map<string, string>> => {
+    const got = parseSpoken(await call(c), batch);
+    if (got.size > 0 || !halves || batch.length < 2) return got;
+    const mid = Math.ceil(batch.length / 2);
+    const parts = [batch.slice(0, mid), batch.slice(mid)];
+    const results = await Promise.all(parts.map((p) => speak({ ...c, user: spokenPrompt(game, p) }, p, false)));
+    return new Map(results.flatMap((r) => [...r]));
+  };
+  for (const [i, c] of calls.entries()) {
+    const batch = batches[i] ?? [];
+    const got = await speak(c, batch, true);
+    // A line the rewrite missed, or grew too long, keeps the bot's own words.
+    for (const l of batch) lines[l.key] = { bot: l.bot, original: l.text, spoken: got.get(l.key) ?? l.text };
+  }
+  await writeJsonAtomic(spokenPath, { version: 1, model, lines });
+  return Object.values(lines).filter((l) => l.spoken !== l.original).length;
+}
 
 function outline(story: Story): void {
   const tl = storyTimeline(story, script, game);
@@ -130,7 +176,7 @@ const plan = (what: string, c: DirectorCall, expectedOut: number, known: boolean
   planned.push({ what, model: c.model, promptTokens, worstUsd: known ? 0 : worstCaseCallUsd(price, promptTokensSafe(c), c.maxTokens), expectedUsd: known ? 0 : expectedUsd, recorded: known });
 };
 const roomCalls: DirectorCall[] = game.rooms.map((room) => ({ stage: 'room', room: room.index, model: models.room, ...roomPrompt(game, room, flags, script), maxTokens: models.roomMaxTokens, schema: ROOM_JSON_SCHEMA }));
-for (const c of roomCalls) plan(`Reading room ${(c.room ?? 0) + 1}`, c, EXPECTED_OUT.room, recorded.has(callKey(c)));
+if (!spokenOnly) for (const c of roomCalls) plan(`Reading room ${(c.room ?? 0) + 1}`, c, EXPECTED_OUT.room, recorded.has(callKey(c)));
 // The edit reads what the readings write. With every reading recorded, its exact prompt is known;
 // otherwise its size is estimated from typical readings (6 moments a room).
 const recordedNotes = roomCalls.map((c) => {
@@ -154,7 +200,23 @@ const editCall: DirectorCall = {
   maxTokens: models.editMaxTokens,
   schema: EDIT_JSON_SCHEMA,
 };
-plan(exact ? 'The edit' : 'The edit (guess)', editCall, EXPECTED_OUT.edit, exact && recorded.has(callKey(editCall)));
+if (!spokenOnly) plan(exact ? 'The edit' : 'The edit (guess)', editCall, EXPECTED_OUT.edit, exact && recorded.has(callKey(editCall)));
+// The spoken script: exact when the story is kept; otherwise sized from the story there now (the new one
+// is about as long), or from a typical one.
+{
+  const known = spokenOnly || (exact && recorded.has(callKey(editCall)));
+  const base = existingStory ? spokenCalls(existingStory, d.spokenModel, d.spokenMaxTokens) : null;
+  if (base && base.calls.length > 0) {
+    base.calls.forEach((c, i) => {
+      const outTokens = Math.round((base.batches[i] ?? []).reduce((n, l) => n + l.text.length, 0) / CHARS_PER_TOKEN);
+      plan(`Spoken script ${i + 1}${known ? '' : ' (guess)'}`, c, outTokens, known && recorded.has(callKey(c)));
+    });
+  } else {
+    const typicalUser = 'word '.repeat(SPOKEN_BATCH * 45);
+    const c: DirectorCall = { stage: 'spoken', room: 0, model: d.spokenModel, system: [{ text: SPOKEN_SYSTEM }], user: typicalUser, maxTokens: d.spokenMaxTokens, schema: SPOKEN_JSON_SCHEMA };
+    plan('Spoken script (guess)', c, SPOKEN_BATCH * 45, false);
+  }
+}
 
 say('');
 say(`Directing "${runName}": ${game.rooms.length} rooms, ${game.bots.length} bots, the full recording about ${Math.round(script.total / 60)} minutes.`);
@@ -201,15 +263,26 @@ const { call, stats } = directorCaller({ client: new ClaudeClient(ring.reveal('A
 let stopReason: string | null = null;
 try {
   say('');
-  say(`Reading ${game.rooms.length} room${game.rooms.length === 1 ? '' : 's'} (${models.room}), then the edit (${models.edit})...`);
-  const result = await directStory(game, call, models);
-  await writeJsonAtomic(join(directorDir, 'notes.json'), { rooms: result.notes, problems: [...result.problems, ...stats.cutOff] });
-  await saveStory(result.story);
-  outline(result.story);
+  let story: Story;
+  let problems: string[] = [];
+  if (spokenOnly && existingStory) {
+    story = existingStory;
+    say(`Keeping the story; making its spoken script (${d.spokenModel})...`);
+  } else {
+    say(`Reading ${game.rooms.length} room${game.rooms.length === 1 ? '' : 's'} (${models.room}), then the edit (${models.edit}), then the spoken script (${d.spokenModel})...`);
+    const result = await directStory(game, call, models);
+    await writeJsonAtomic(join(directorDir, 'notes.json'), { rooms: result.notes, problems: [...result.problems, ...stats.cutOff] });
+    await saveStory(result.story);
+    story = result.story;
+    problems = result.problems;
+  }
+  const reworded = await saveSpoken(story, call, d.spokenModel, d.spokenMaxTokens);
+  outline(story);
   say('');
-  for (const p of [...result.problems, ...stats.cutOff]) warn(`  ${p}`);
+  for (const p of [...problems, ...stats.cutOff]) warn(`  ${p}`);
+  say(`The spoken script: ${reworded} of the story's bot lines reworded for the ear (the screen keeps their own words). npm run voice reads it.`);
   say(`Calls: ${stats.made} made, ${stats.reused} answered from the record. Spent ${usd4(stats.spentUsd)} (expected ${usd4(expected)}).`);
-  say(`Saved ${relative(PROJECT_ROOT, storyPath)}. Watch it: npm run view, then pick the game.`);
+  say(`Saved ${relative(PROJECT_ROOT, storyPath)} and ${relative(PROJECT_ROOT, spokenPath)}. Watch it: npm run view, then pick the game.`);
 } catch (err) {
   stopReason = (err as Error).message;
   warn(`Directing stopped: ${stopReason}`);

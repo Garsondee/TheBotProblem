@@ -10,7 +10,7 @@
 import type { VoiceManifest } from './voiceTiming';
 
 export type { VoiceManifest } from './voiceTiming';
-export { narrationSeconds, voiceSeconds } from './voiceTiming';
+export { segmentSeconds, voiceSeconds } from './voiceTiming';
 
 export class VoicePlayer {
   private queue: { url: string; rate: number; volume: number }[] = [];
@@ -35,12 +35,19 @@ export class VoicePlayer {
     if (!this.current) this.next();
   }
 
-  /** The narrator's line for a story segment, if it was voiced and still fits the story (narrationSeconds). */
-  narrate(segment: number, fits: ReadonlyMap<number, number>, speed = 1): void {
-    const line = this.manifest.narration?.[String(segment)];
-    if (!line || !fits.has(segment)) return;
-    this.queue.push({ url: this.url(line.file), rate: (this.manifest.narrator?.pitch ?? 1) * speed, volume: 1 });
+  /**
+   * A story segment's own line, if it was voiced and still fits the story (segmentSeconds): a quote card's
+   * words in the quoted bot's voice, or the narrator's. False if there is none (the caller may fall back).
+   */
+  playSegment(segment: number, fits: ReadonlyMap<number, number>, speed = 1): boolean {
+    if (!fits.has(segment)) return false;
+    const quote = this.manifest.quotes?.[String(segment)];
+    const line = quote ?? this.manifest.narration?.[String(segment)];
+    if (!line) return false;
+    const pitch = quote ? (this.manifest.cast[quote.bot]?.pitch ?? 1) : (this.manifest.narrator?.pitch ?? 1);
+    this.queue.push({ url: this.url(line.file), rate: pitch * speed, volume: 1 });
     if (!this.current) this.next();
+    return true;
   }
 
   /** Pausing, seeking, or switching voices off: silence at once, and forget what was waiting. */

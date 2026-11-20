@@ -141,18 +141,6 @@ class TraceRecorder {
   }
 }
 
-/** Two bots in one place (only a swap cut short does this): the upper one is set on the other's head. */
-function separateOverlaps(world: World): void {
-  const bots = world.bots.filter((b) => !b.exited);
-  for (const a of bots) {
-    for (const b of bots) {
-      if (a.id >= b.id || !overlaps(a, b)) continue;
-      const [top, under] = a.y >= b.y ? [a, b] : [b, a];
-      top.y = under.y + under.h;
-      top.vy = 0;
-    }
-  }
-}
 
 /**
  * Play every bot's queue for one round. `queues` maps bot id to up to six
@@ -276,10 +264,13 @@ export function resolvePhase(
       if (settled || steps >= maxSteps) break;
     }
     recorder?.slot(slot, slotStart, world.step);
-    // Passing through ends with the slot. A swap cut short (something blocked the walker) can leave the two
-    // in one place: the upper one is then standing on the other's head, which the physics can carry on from.
-    for (const b of world.bots) b.passThrough = null;
-    separateOverlaps(world);
+    // A swap's passing through, and standing one's ground, both end with the slot. Two bots may be left in
+    // one place (one walked into another that was standing still, and stopped there): that's allowed, since
+    // the sweeps ignore a body a bot already overlaps, so either can walk out of it.
+    for (const b of world.bots) {
+      b.passThrough = null;
+      b.blocking = false;
+    }
 
     for (const { c, text, from, startStep } of running) {
       const bot = world.bots.find((b) => b.id === c.botId);

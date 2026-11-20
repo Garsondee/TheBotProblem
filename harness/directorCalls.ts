@@ -50,7 +50,8 @@ export function loadRecorded(file: string): Map<string, RecordedCall> {
   for (const line of readFileSync(file, 'utf8').split('\n')) {
     if (line.trim() === '') continue;
     const r = JSON.parse(line) as RecordedCall;
-    if (r.rec === 'call') out.set(r.key, r);
+    // Refusals stay in the file as a record of what was paid, but are never reused as answers.
+    if (r.rec === 'call' && r.stopReason !== 'refusal') out.set(r.key, r);
   }
   return out;
 }
@@ -59,6 +60,11 @@ export function loadRecorded(file: string): Map<string, RecordedCall> {
 export function promptTokensSafe(c: Pick<DirectorCall, 'system' | 'user'>): number {
   const chars = c.system.reduce((n, b) => n + b.text.length, 0) + c.user.length;
   return Math.ceil(chars / CHARS_PER_TOKEN_SAFE) + 50;
+}
+
+/** What a call is, in words: the reading of room 2, the edit, the spoken script (part 1). */
+export function stageName(c: Pick<DirectorCall, 'stage' | 'room'>): string {
+  return c.stage === 'room' ? `reading of room ${(c.room ?? 0) + 1}` : c.stage === 'spoken' ? `spoken script (part ${(c.room ?? 0) + 1})` : 'edit';
 }
 
 export class DirectorCapError extends Error {}
@@ -96,10 +102,10 @@ export function directorCaller(o: DirectorCallerOptions): { call: DirectorCaller
       stats.reused += 1;
       return old.text;
     }
-    if (!o.client || !o.money) throw new Error(`The ${c.stage === 'room' ? `reading of room ${(c.room ?? 0) + 1}` : 'edit'} isn't recorded, and this is a free run.`);
+    if (!o.client || !o.money) throw new Error(`The ${stageName(c)} isn't recorded, and this is a free run.`);
     const price = priceOf(o.prices, c.model);
     const reserved = o.money.guard.reserve({ botId: null, provider: price.provider, worstCaseUsd: worstCaseCallUsd(price, promptTokensSafe(c), c.maxTokens) });
-    if (!reserved.ok) throw new DirectorCapError(describeBreach(reserved.breach, c.stage === 'room' ? `reading room ${(c.room ?? 0) + 1}` : 'the edit'));
+    if (!reserved.ok) throw new DirectorCapError(describeBreach(reserved.breach, `the ${stageName(c)}`));
     const reservation = reserved.reservations[0];
     if (!reservation) throw new Error('No reservation came back.');
     const request: ModelCall = { model: c.model, system: c.system, user: [{ type: 'text', text: c.user }], maxTokens: c.maxTokens, schema: c.schema };
@@ -128,9 +134,12 @@ export function directorCaller(o: DirectorCallerOptions): { call: DirectorCaller
     const record: RecordedCall = { rec: 'call', key, stage: c.stage, room: c.room, model: c.model, at: clock().toISOString(), text: reply.text, stopReason: reply.stopReason, chargedUsd: entry.chargedUsd, usage: reply.usage, raw: reply.raw };
     mkdirSync(dirname(o.file), { recursive: true });
     appendFileSync(o.file, `${JSON.stringify(record)}\n`);
-    o.recorded.set(key, record);
+    // A refusal is written down (it was paid for) but never answered from: asking again may well succeed.
+    // The first spoken script of game 2 (2026-11-20) came back refused, empty, for lines of plain game talk.
+    if (reply.stopReason === 'refusal') stats.cutOff.push(`The ${stageName(c)} was refused by the model; it will be asked again next time.`);
+    else o.recorded.set(key, record);
     // A cut-off reply won't parse, and the Director falls back; say why. (A bigger cap is a new request, so it won't be answered from this record.)
-    if (reply.stopReason === 'max_tokens') stats.cutOff.push(`The ${c.stage === 'room' ? `reading of room ${(c.room ?? 0) + 1}` : 'edit'} hit its ${c.maxTokens}-token cap; raise director.${c.stage === 'room' ? 'roomMaxTokens' : 'editMaxTokens'} in config/game.json.`);
+    if (reply.stopReason === 'max_tokens') stats.cutOff.push(`The ${stageName(c)} hit its ${c.maxTokens}-token cap; raise director.${c.stage === 'room' ? 'roomMaxTokens' : c.stage === 'spoken' ? 'spokenMaxTokens' : 'editMaxTokens'} in config/game.json.`);
     return reply.text;
   };
   return { call, stats };

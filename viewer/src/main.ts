@@ -31,7 +31,7 @@ import { Scene } from './render/scene';
 import type { Beat, Script, ThoughtMode } from './script';
 import { beatAt, beatForEvent, buildScript } from './script';
 import type { VoiceManifest } from './voices';
-import { narrationSeconds, VoicePlayer, voiceSeconds } from './voices';
+import { segmentSeconds, VoicePlayer, voiceSeconds } from './voices';
 import type { Snapshot } from './state';
 import { heightOf, RoomPlayback } from './state';
 import type { Story, StoryItem, StoryTimeline } from './story';
@@ -85,7 +85,7 @@ class Player {
   /** The bots' voices, for games that have been voiced (npm run voice). */
   private readonly voices: VoicePlayer | null;
   private readonly voiceLengths: Map<number, number> | null;
-  /** The narrator's voiced lines that still fit this story, by segment: how long each plays. */
+  /** The story's own voiced lines that still fit it, by segment (the narrator's, the quote cards'): how long each plays. */
   private readonly narrationFits: Map<number, number> | null;
   private voicesOn = load<boolean>('voices', true);
   /** The beat or story item whose lines were last queued. */
@@ -121,7 +121,7 @@ class Player {
     this.mode = story ? startMode : 'full';
     this.voices = voiceManifest ? new VoicePlayer(runId, voiceManifest) : null;
     this.voiceLengths = voiceManifest ? voiceSeconds(voiceManifest) : null;
-    this.narrationFits = voiceManifest && story ? narrationSeconds(voiceManifest, story.segments) : null;
+    this.narrationFits = voiceManifest && story ? segmentSeconds(voiceManifest, story.segments) : null;
     this.auras = Object.fromEntries(game.seats.flatMap((s) => (s.colour ? [[s.bot, s.colour.hex]] : [])));
     if (!SPEEDS.includes(this.speed as (typeof SPEEDS)[number])) this.speed = 1;
     root.className = 'app';
@@ -592,13 +592,20 @@ class Player {
         if (key !== this.voicedKey) {
           this.voicedKey = key;
           const item = storyAt?.item;
+          const fits = this.narrationFits ?? new Map<number, number>();
           if (item?.kind === 'card') {
-            // A quote is the bot's own voice; a chapter or a narration is the narrator's.
-            if (item.card === 'quote' && item.eventId !== null) this.voices.play([item.eventId], this.speed);
-            else if (this.narrationFits) this.voices.narrate(item.segment, this.narrationFits, this.speed);
+            // A quote card: its own words in the bot's voice (or, from older voicing, the whole line); a chapter
+            // or a narration: the narrator.
+            const played = this.voices.playSegment(item.segment, fits, this.speed);
+            if (!played && item.card === 'quote' && item.eventId !== null) this.voices.play([item.eventId], this.speed);
           } else if (item?.kind === 'zip') {
-            if (this.narrationFits) this.voices.narrate(item.segment, this.narrationFits, this.speed);
-          } else if (!cardUp) this.voices.play(beat.events.map((e) => e.id), this.speed);
+            this.voices.playSegment(item.segment, fits, this.speed);
+          } else if (!cardUp) {
+            // A shown moment: the narrator says its caption as it starts, then the bots speak.
+            const prev = storyAt && this.timeline ? this.timeline.items[storyAt.index - 1] : undefined;
+            if (item && (!prev || prev.segment !== item.segment)) this.voices.playSegment(item.segment, fits, this.speed);
+            this.voices.play(beat.events.map((e) => e.id), this.speed);
+          }
         }
       }
     }

@@ -51,8 +51,30 @@ interface Obstacle {
   contact: Contact;
 }
 
-/** Everything solid that isn't a tile: closed doors, crates, and bots still in play. */
-function obstacles(world: World, self: Body): Obstacle[] {
+/**
+ * Does `other` let the moving bot `self` through? Bots are solid to each other only when it means
+ * something: a bot standing its ground on purpose (the block command), or one moving the same way (bots
+ * going the same way push as one, so two can still shift a heavy crate). A bot standing still, or coming
+ * the other way, lets it through: in the first paid games (2026-11-20) two thirds of failed commands were
+ * bots stuck behind bots that never meant to be in the way. Up and down, only climbing passes through
+ * (two bots can share a ladder); anything falling still lands on a head, so bots can stand on each other.
+ */
+function letsThrough(other: Bot, self: Bot, axis: 'x' | 'y', dir: number): boolean {
+  if (other.blocking) return false;
+  if (axis === 'x') return other.vx === 0 || Math.sign(other.vx) !== Math.sign(dir);
+  return self.onLadder && (other.vy === 0 || Math.sign(other.vy) !== Math.sign(dir));
+}
+
+/**
+ * How the bot asking is moving, which decides which bots are solid to it: a move along one axis (the
+ * letsThrough rule); 'still', a place it would occupy (landing, a ladder, the far side of a bot): only a
+ * bot standing its ground takes up room; 'all', every bot, for what holds things up (heads to stand on,
+ * room to stand up from a crouch).
+ */
+type Motion = { axis: 'x' | 'y'; dir: number } | 'still' | 'all';
+
+/** Everything solid that isn't a tile: closed doors, crates, and bots still in play that don't let `self` through. */
+function obstacles(world: World, self: Body, motion: Motion): Obstacle[] {
   const out: Obstacle[] = [];
   for (const door of world.level.doors) {
     if (!world.doors[door.id]) out.push({ box: doorBox(door), contact: { kind: 'door', id: door.id } });
@@ -60,10 +82,12 @@ function obstacles(world: World, self: Body): Obstacle[] {
   for (const crate of world.crates) {
     if (crate !== self) out.push({ box: crate, contact: { kind: 'crate', id: crate.id } });
   }
-  // Two bots swapping places pass through each other for that slot, and only each other.
-  const passing = 'passThrough' in self ? (self as Bot).passThrough : null;
+  // Two bots swapping places pass through each other for that slot, and only each other. Crates never pass through bots.
+  const selfBot = 'passThrough' in self ? (self as Bot) : null;
+  const passing = selfBot?.passThrough ?? null;
   for (const bot of world.bots) {
     if (bot === self || bot.exited || bot.id === passing || bot.passThrough === self.id) continue;
+    if (selfBot && motion !== 'all' && (motion === 'still' ? !bot.blocking : letsThrough(bot, selfBot, motion.axis, motion.dir))) continue;
     out.push({ box: bot, contact: { kind: 'bot', id: bot.id } });
   }
   return out;
@@ -96,7 +120,7 @@ export function sweepX(world: World, body: Box, dx: number): Sweep {
         }
       }
     }
-    for (const o of obstacles(world, body as Body)) {
+    for (const o of obstacles(world, body as Body, { axis: 'x', dir: dx })) {
       if (overlapsVertically(o.box, body) && o.box.x >= front && o.box.x - front < limit) {
         limit = o.box.x - front;
         contact = o.contact;
@@ -114,7 +138,7 @@ export function sweepX(world: World, body: Box, dx: number): Sweep {
         }
       }
     }
-    for (const o of obstacles(world, body as Body)) {
+    for (const o of obstacles(world, body as Body, { axis: 'x', dir: dx })) {
       const right = o.box.x + o.box.w;
       if (overlapsVertically(o.box, body) && right <= back && right - back > limit) {
         limit = right - back;
@@ -148,7 +172,7 @@ export function sweepY(world: World, body: Box, dy: number, passPlatforms: boole
         }
       }
     }
-    for (const o of obstacles(world, body as Body)) {
+    for (const o of obstacles(world, body as Body, { axis: 'y', dir: dy })) {
       if (overlapsHorizontally(o.box, body) && o.box.y >= top && o.box.y - top < limit) {
         limit = o.box.y - top;
         contact = o.contact;
@@ -168,7 +192,7 @@ export function sweepY(world: World, body: Box, dy: number, passPlatforms: boole
         }
       }
     }
-    for (const o of obstacles(world, body as Body)) {
+    for (const o of obstacles(world, body as Body, { axis: 'y', dir: dy })) {
       const top = o.box.y + o.box.h;
       if (overlapsHorizontally(o.box, body) && top <= bottom && top - bottom > limit) {
         limit = top - bottom;
@@ -185,15 +209,18 @@ export function supportUnder(world: World, body: Box, passPlatforms: boolean): C
   return s.moved === 0 ? s.contact : null;
 }
 
-/** Is a box free of solid tiles and other bodies? Used before snapping a bot onto a ladder. */
-export function isFree(world: World, box: Box, self: Body): boolean {
+/**
+ * Is a box free of solid tiles and other bodies? For a place a bot would take (a ladder, a landing spot),
+ * only a bot standing its ground takes up room ('still'); 'all' counts every bot (room to stand up).
+ */
+export function isFree(world: World, box: Box, self: Body, motion: 'still' | 'all' = 'still'): boolean {
   const level = world.level;
   for (let row = Math.floor(box.y / T); row <= Math.floor((box.y + box.h - 1) / T); row++) {
     for (let col = Math.floor(box.x / T); col <= Math.floor((box.x + box.w - 1) / T); col++) {
       if (tileAt(level, col, row) === TILE.SOLID) return false;
     }
   }
-  return obstacles(world, self).every((o) => !overlaps(o.box, box));
+  return obstacles(world, self, motion).every((o) => !overlaps(o.box, box));
 }
 
 /**
@@ -211,7 +238,7 @@ export function surfaceIntervals(world: World, y: number, self: Body): Array<[nu
       if (tile === TILE.SOLID || tile === TILE.ONEWAY || isLadderTop(level, col, row)) raw.push([col * T, (col + 1) * T]);
     }
   }
-  for (const o of obstacles(world, self)) {
+  for (const o of obstacles(world, self, 'all')) {
     if (o.box.y + o.box.h === y) raw.push([o.box.x, o.box.x + o.box.w]);
   }
   raw.sort((a, b) => a[0] - b[0]);

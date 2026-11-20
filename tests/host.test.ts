@@ -115,7 +115,7 @@ describe('introductions and the silent judge', () => {
       expect(result.introductions[b]).toHaveLength(levels.length);
       expect(result.introductions[b]?.every((r) => r.score !== null)).toBe(true);
     }
-  });
+  }, 60_000); // a whole three-room game: past the default 5 s when the machine is busy
 
   it('understands a judge that names bots by name or as "Bot B", and tells Ingram about any it skipped', async () => {
     // In the first paid game the judge answered one room with "Alpha" and "Bot B": nobody heard a verdict.

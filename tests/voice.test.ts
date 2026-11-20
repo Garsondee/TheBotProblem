@@ -20,7 +20,7 @@ import { buildScript } from '../viewer/src/script';
 import type { Story } from '../viewer/src/story';
 import { storyTimeline } from '../viewer/src/story';
 import type { VoiceManifest } from '../viewer/src/voiceTiming';
-import { narrationSeconds } from '../viewer/src/voiceTiming';
+import { segmentSeconds } from '../viewer/src/voiceTiming';
 import { castNarrator, NARRATOR_VOICES, narrationLines } from '../voice/narration';
 
 const persona = (t: Partial<Persona['traits']>): Persona => ({ traits: { boldness: 5, warmth: 5, honesty: 5, curiosity: 5, patience: 5, ...t } });
@@ -115,16 +115,17 @@ describe('the narrator', () => {
     segments: [
       { type: 'chapter', title: 'Room 2: The Last Door', at },
       { type: 'narrate', text: 'Alpha  holds the lever.', at },
-      { type: 'show', from: at, to: at, bots: [], caption: 'A caption stays silent', importance: 1 },
+      { type: 'show', from: at, to: at, bots: [], caption: 'Echo waits at the ladder', importance: 1 },
       { type: 'zip', from: at, to: at, text: '' },
       { type: 'zip', from: at, to: at, text: 'The door opens.' },
     ],
   };
 
-  it('says the chapters, the narration and what a fast-forward says; never a caption', () => {
+  it('says the chapters, the narration, what a fast-forward says, and the caption of each moment shown', () => {
     expect(narrationLines(story)).toEqual([
       { segment: 0, kind: 'chapter', text: 'Room 2: The Last Door' },
       { segment: 1, kind: 'narrate', text: 'Alpha holds the lever.' },
+      { segment: 2, kind: 'caption', text: 'Echo waits at the ladder' },
       { segment: 4, kind: 'zip', text: 'The door opens.' },
     ]);
   });
@@ -148,7 +149,7 @@ describe('the narrator', () => {
         4: { file: 'c.wav', seconds: 3, kind: 'zip', text: 'The door used to open.' }, // the story changed since
       },
     };
-    const fits = narrationSeconds(manifest, story.segments);
+    const fits = segmentSeconds(manifest, story.segments);
     expect([...fits.keys()]).toEqual([0, 1]);
 
     const config = loadGameConfig();

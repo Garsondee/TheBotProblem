@@ -1,10 +1,11 @@
 /**
- * The narrator's voice (Ingram, 2026-11-20: "We should voice the narrator too").
+ * The narrator's voice (Ingram, 2026-11-20: "We should voice the narrator too", then "the entire 'Story'
+ * should be voiced").
  *
  * The narrator is the Director (analysis/director.ts), speaking in its own voice: chapter titles, the
- * narration between moments, and what a fast-forward says. The captions over shown moments stay silent,
- * since the bots may be speaking there. The narrator gets a voice no bot has, at its natural pitch: the
- * slight robot in the bots' voices is for bots, and the narrator is not one of them.
+ * narration between moments, what a fast-forward says, and the caption of each moment it shows (said as the
+ * moment starts, before the bots speak in it). The narrator gets a voice no bot has, at its natural pitch:
+ * the slight robot in the bots' voices is for bots, and the narrator is not one of them.
  */
 import type { Story } from '../viewer/src/story';
 import type { CastVoice } from './cast';
@@ -12,7 +13,7 @@ import type { CastVoice } from './cast';
 export interface NarrationLine {
   /** The story segment it belongs to (its index in story.json's segments). */
   segment: number;
-  kind: 'chapter' | 'narrate' | 'zip';
+  kind: 'chapter' | 'narrate' | 'zip' | 'caption';
   text: string;
 }
 
@@ -20,8 +21,13 @@ export interface NarrationLine {
 export function narrationLines(story: Story): NarrationLine[] {
   const out: NarrationLine[] = [];
   story.segments.forEach((seg, segment) => {
-    const text = seg.type === 'chapter' ? seg.title : seg.type === 'narrate' || seg.type === 'zip' ? seg.text : '';
-    if ((seg.type === 'chapter' || seg.type === 'narrate' || seg.type === 'zip') && text.trim() !== '') out.push({ segment, kind: seg.type, text: text.replace(/\s+/g, ' ').trim() });
+    const said =
+      seg.type === 'chapter' ? { kind: 'chapter' as const, text: seg.title } :
+      seg.type === 'narrate' ? { kind: 'narrate' as const, text: seg.text } :
+      seg.type === 'zip' ? { kind: 'zip' as const, text: seg.text } :
+      seg.type === 'show' ? { kind: 'caption' as const, text: seg.caption } :
+      null;
+    if (said && said.text.trim() !== '') out.push({ segment, kind: said.kind, text: said.text.replace(/\s+/g, ' ').trim() });
   });
   return out;
 }

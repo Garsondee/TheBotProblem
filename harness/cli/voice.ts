@@ -26,6 +26,9 @@ import { castVoices } from '../../voice/cast';
 import type { LineKind } from '../../voice/lines';
 import { DEFAULT_KINDS, linesToVoice } from '../../voice/lines';
 import { castNarrator, narrationLines } from '../../voice/narration';
+import { storyLines } from '../../analysis/spoken';
+import { parseReplay } from '../../viewer/src/data';
+import { buildScript } from '../../viewer/src/script';
 import type { Story } from '../../viewer/src/story';
 import { wavFromSamples } from '../../voice/wav';
 import { PATHS } from '../config';
@@ -47,6 +50,8 @@ export interface VoiceIndex {
   /** The narrator (voice/narration.ts) and its lines, by story segment, each with the words it says. */
   narrator?: CastVoice;
   narration?: Record<string, { file: string; seconds: number; kind: string; text: string }>;
+  /** Quote cards, by story segment: the words on the card (in the spoken script's words), in the bot's voice. */
+  quotes?: Record<string, { file: string; seconds: number; bot: string; eventId: number; text: string }>;
 }
 
 const { values, positionals } = parseArgs({
@@ -77,7 +82,8 @@ for (const k of kinds) {
 }
 
 // ---------------------------------------------------------------- the game, its story and its saved cast
-const records = readFileSync(join(runDir, 'replay.jsonl'), 'utf8')
+const replayText = readFileSync(join(runDir, 'replay.jsonl'), 'utf8');
+const records = replayText
   .split('\n')
   .filter((l) => l.trim() !== '')
   .map((l) => JSON.parse(l) as Record<string, unknown> & { rec: string });
@@ -89,8 +95,12 @@ if (!header) {
 const events = records.filter((r) => r.rec === 'event') as unknown as GameEvent[];
 const storyPath = join(runDir, 'story.json');
 const story: Story | null = existsSync(storyPath) ? (JSON.parse(readFileSync(storyPath, 'utf8')) as Story) : null;
-const storyIds = story ? (story.voiceLines ?? []) : null;
-if (kinds.has('story') && !storyIds) say('No story yet (npm run direct makes one), so no chosen lines: the rest only.');
+if (kinds.has('story') && !story) say('No story yet (npm run direct makes one): the introductions, diaries and messages only.');
+// The story's spoken script (npm run direct writes it): its bot lines reworded for the ear, meaning kept.
+const spokenPath = join(runDir, 'spoken.json');
+const spokenScript: Record<string, { original: string; spoken: string }> = existsSync(spokenPath)
+  ? ((JSON.parse(readFileSync(spokenPath, 'utf8')) as { lines?: Record<string, { original: string; spoken: string }> }).lines ?? {})
+  : {};
 
 const voiceDir = join(runDir, 'voice');
 mkdirSync(voiceDir, { recursive: true });
@@ -101,7 +111,8 @@ say(`Voicing ${basename(runDir)} with ${ENGINE}.`);
 for (const [bot, c] of Object.entries(cast)) say(`  ${bot}: ${c.voice}, speed ${c.speed}, pitch ${c.pitch}  (${c.why})`);
 
 // ---------------------------------------------------------------- the lines
-const lines = linesToVoice(events, storyIds, kinds);
+// Everything the story shows is voiced first (below); these are the rest: introductions, diaries, messages.
+const lines = linesToVoice(events, null, new Set([...kinds].filter((k) => k !== 'story')));
 const index: VoiceIndex = { version: 1, engine: ENGINE, cast, lines: {} };
 /** Underscores read aloud as words: walk_to is "walk to". The recording keeps the bot's own spelling. */
 const spoken = (text: string) => text.replace(/_/g, ' ');
@@ -164,9 +175,32 @@ async function voiceText(c: CastVoice, text: string, what: string): Promise<{ fi
   return { file, seconds };
 }
 
+// ---------------------------------------------------------------- the story: every bot line it shows
+// (Ingram, 2026-11-20: "the entire 'Story' should be voiced"), in the spoken script's words where they still
+// match what the screen shows, else the bot's own. Lines in shown moments are kept by event (they sound the
+// same in the full game); quote cards by segment (the words on the card).
+let storyVoiced = 0;
+let reworded = 0;
+if (story && kinds.has('story')) {
+  const game = parseReplay(replayText);
+  const said = storyLines(game, story, buildScript(game, { thoughts: story.thoughts }));
+  index.quotes = {};
+  for (const [i, l] of said.entries()) {
+    const c = cast[l.bot];
+    if (!c) continue;
+    const s = spokenScript[l.key];
+    const words = s && s.original === l.text ? s.spoken : l.text;
+    if (words !== l.text) reworded += 1;
+    const v = await voiceText(c, words, `[story ${i + 1}/${said.length}] ${l.bot} (${l.kind})`);
+    if (l.segment !== null) index.quotes[String(l.segment)] = { file: v.file, seconds: round2(v.seconds), bot: l.bot, eventId: l.eventId, text: l.text };
+    else index.lines[String(l.eventId)] = { file: v.file, seconds: round2(v.seconds), bot: l.bot, kind: l.kind === 'thought' ? 'thought' : 'story' };
+    storyVoiced += 1;
+  }
+}
+
 for (const [i, line] of lines.entries()) {
   const c = cast[line.bot];
-  if (!c) continue;
+  if (!c || index.lines[String(line.eventId)]) continue; // already voiced as part of the story
   const v = await voiceText(c, line.text, `[${i + 1}/${lines.length}] ${line.bot} (${line.kind})`);
   index.lines[String(line.eventId)] = { file: v.file, seconds: round2(v.seconds), bot: line.bot, kind: line.kind };
 }
@@ -189,10 +223,10 @@ if (story && kinds.has('story')) {
 
 await writeJsonAtomic(indexPath, index);
 // Lines no longer in the index (after a re-cast, say) are this command's own leftovers: tidy them away.
-const kept = new Set([...Object.values(index.lines), ...Object.values(index.narration ?? {})].map((l) => l.file));
+const kept = new Set([...Object.values(index.lines), ...Object.values(index.narration ?? {}), ...Object.values(index.quotes ?? {})].map((l) => l.file));
 const stale = readdirSync(voiceDir).filter((f) => VOICE_FILE.test(f) && !kept.has(f));
 for (const f of stale) rmSync(join(voiceDir, f));
 if (stale.length > 0) say(`Removed ${stale.length} voiced line${stale.length === 1 ? '' : 's'} no longer used.`);
 say('');
-say(`Voiced ${lines.length} lines${narrated > 0 ? ` and ${narrated} of the narrator's` : ''} (${made} made, ${reused} already there): ${Math.round(audioSeconds)}s of speech, in ${Math.round((Date.now() - started) / 1000)}s. Free.`);
+say(`Voiced ${storyVoiced} story lines (${reworded} in the spoken script's words), ${Object.keys(index.lines).length} lines in all${narrated > 0 ? ` and ${narrated} of the narrator's` : ''} (${made} made, ${reused} already there): ${Math.round(audioSeconds)}s of speech, in ${Math.round((Date.now() - started) / 1000)}s. Free.`);
 say(`Saved: ${join(basename(runDir), 'voice')}. Play it with npm run view; the Voices switch turns them on and off.`);

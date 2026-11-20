@@ -216,20 +216,22 @@ export function bridgeGaps(segments: readonly Segment[], script: Script): Segmen
 }
 
 /**
- * `voiceSeconds` (npm run voice): a voiced quote stays on screen until its line has been heard.
- * `narrationSeconds`: the same for the narrator's voiced lines, by segment (chapters, narration, fast-forwards).
+ * `voiceSeconds` (npm run voice): lines by event id; a voiced quote stays on screen until it has been heard.
+ * `segmentSeconds`: the story's own voiced lines, by segment: the narrator's (chapters, narration,
+ * fast-forwards, the captions of shown moments) and the quote cards'. Each card waits for its line, and a
+ * shown moment's first beat makes room for its spoken caption.
  */
 export function storyTimeline(
   story: Story,
   script: Script,
   game: GameData,
   voiceSeconds?: ReadonlyMap<number, number>,
-  narrationSeconds?: ReadonlyMap<number, number>,
+  segmentSeconds?: ReadonlyMap<number, number>,
 ): StoryTimeline {
   const byId = new Map(game.events.map((e) => [e.id, e]));
   const items: StoryItem[] = [];
-  /** At least long enough to read, and long enough to hear if the narrator says it. */
-  const heard = (i: number, read: number, pad: number) => Math.max(read, (narrationSeconds?.get(i) ?? -pad) + pad);
+  /** At least long enough to read, and long enough to hear if it is voiced. */
+  const heard = (i: number, read: number, pad: number) => Math.max(read, (segmentSeconds?.get(i) ?? -pad) + pad);
   story.segments.forEach((seg, i) => {
     switch (seg.type) {
       case 'chapter':
@@ -242,15 +244,21 @@ export function storyTimeline(
         const e = byId.get(seg.eventId);
         const text = e ? quoteShown(e, seg.excerpt) : '';
         if (!e || text === '') return;
-        items.push({ kind: 'card', segment: i, card: 'quote', text, eventId: e.id, hold: holdAt(script, seg.at), dur: Math.max(readSeconds(text, 4, 18) + 0.6, (voiceSeconds?.get(e.id) ?? 0) + 0.8) });
+        // Its own words voiced (the card), or else the whole line (older voicing).
+        const voice = segmentSeconds?.get(i) ?? voiceSeconds?.get(e.id) ?? 0;
+        items.push({ kind: 'card', segment: i, card: 'quote', text, eventId: e.id, hold: holdAt(script, seg.at), dur: Math.max(readSeconds(text, 4, 18) + 0.6, voice + 0.8) });
         break;
       }
       case 'show': {
         const wanted = new Set(seg.bots.map((b) => b.toUpperCase()));
+        // The narrator says the caption as the moment starts, before the bots speak: its first beat makes room.
+        const caption = segmentSeconds?.get(i);
+        let first = true;
         // Phase titles and the moves always stay; turns stay for the bots this moment is about.
         for (const b of beatsBetween(script, seg.from, seg.to)) {
           if (b.kind === 'turn' && wanted.size > 0 && b.bot && !wanted.has(b.bot)) continue;
-          items.push({ kind: 'beat', segment: i, beat: b.index, dur: b.dur, caption: seg.caption });
+          items.push({ kind: 'beat', segment: i, beat: b.index, dur: b.dur + (first && caption !== undefined ? caption + 0.3 : 0), caption: seg.caption });
+          first = false;
         }
         break;
       }

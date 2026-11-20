@@ -67,16 +67,20 @@ describe('a bot on guard', () => {
 
 describe('push_past and shove', () => {
   it('push_past: the attacker ends up on the far side, and the other moves at half speed for the rest of the round', () => {
-    // Room past B this time (in ROOM, D stands right there: "no room past B to push through to").
+    // No room past B against a wall; plenty in the open (a bot standing still takes up no room any more).
+    const walled = makeLevel(['########', '#......#', '#......#', '#......#', '#..AB#x#', '########']);
     const open = makeLevel(['############', '#..........#', '#..........#', '#..........#', '#.AB.....x.#', '############']);
-    expect(play(startWorld(ROOM), { A: ['push_past(B)'] }).results[0]?.reason).toBe('no room past B to push through to');
-    const { world, results } = play(startWorld(open), { A: ['push_past(B)'], B: ['wait', 'walk(left, 1)'] });
+    expect(play(startWorld(walled), { A: ['push_past(B)'] }).results[0]?.reason).toBe('no room past B to push through to');
+    const { world, results } = play(startWorld(open), { A: ['push_past(B)'], B: ['wait', 'walk(right, 4)'] });
     const a = bot(world, 'A');
     expect(results.find((r) => r.bot === 'A')?.note).toMatch(/pushed past B, which is slowed for the rest of the round$/);
     expect(a.x).toBeGreaterThan(bot(startWorld(open), 'B').x);
-    // B's walk, after the push: slower than the same walk unslowed.
+    // B's walk, after the push: slower than the same walk unslowed. Four tiles, since a short walk never
+    // reaches half speed (it takes 2.5 tiles to reach full speed), so it couldn't show the difference.
     const slowWalk = results.find((r) => r.bot === 'B' && r.command.startsWith('walk'));
-    const freeWalk = play(startWorld(open), { B: ['wait', 'walk(left, 1)'] }).results.find((r) => r.command.startsWith('walk'));
+    const freeWalk = play(startWorld(open), { B: ['wait', 'walk(right, 4)'] }).results.find((r) => r.command.startsWith('walk'));
+    expect(slowWalk?.status).toBe('done');
+    expect(freeWalk?.status).toBe('done');
     const steps = (r: typeof slowWalk) => (r?.endStep ?? 0) - (r?.startStep ?? 0);
     expect(steps(slowWalk)).toBeGreaterThan(steps(freeWalk));
     expect(world.bots.every((b) => !b.slowed)).toBe(true); // the round is over

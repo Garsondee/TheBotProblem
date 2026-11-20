@@ -16,6 +16,8 @@ Read first: [docs/SPEC.md](docs/SPEC.md) (Ingram's brief), [docs/STATE.md](docs/
 
 `npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run view` (the browser viewer; `?mode=full` skips the story, `?zoom=3&focus=5,3` enlarges a spot, `window.botViewer` jumps to beats and story items), `npm run game -- --mock` / `--scripted` (free games), `npm run game -- --dry-run` (a paid game's estimate, from real prompts), `npm run direct -- <run> --dry-run` / `--free` (the Director's estimate / the free Director), `npm run voice -- <run>` (Kokoro voices, free, local), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`. Game flags for the levers (docs/LEVERS.md): `--talk-every`, `--praise`, `--bounty`, `--no-host`, `--no-judge`, `--turn-order`, `--exile-from`.
 - Turn order (game/order.ts) is by name and never told to the bots: keep it out of the rulebook and every prompt. Sort with plain character order, never `localeCompare` (machine-dependent).
+- Bots pass through each other unless one stands its ground (`block`) or both move the same way (engine/collision.ts `letsThrough`); falling still lands on heads, and crates still stop at bots. Overlapping bots are allowed.
+- The Director has three stages: room readings, the edit, and the spoken script (analysis/spoken.ts), which rewrites the story's bot lines for the ear only. The screen always shows the recording's words.
 
 ## The Director and memory
 

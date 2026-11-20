@@ -147,12 +147,26 @@ describe('bots and crates', () => {
     expect(bot(world, 'A').support).toEqual({ kind: 'bot', id: 'B' });
   });
 
-  it('blocks a bot walking into a standing bot, but not one following a moving bot', () => {
+  // 2026-11-20: bots stopped blocking each other by accident ("bots getting constantly stuck isn't very
+  // interesting to watch"). Only a bot standing its ground (block), or one moving the same way, is solid.
+  it('lets a bot walk through a bot standing still or coming the other way, but not one that blocks', () => {
     const level = makeLevel(['############', '#..........#', '#..........#', '#.AB.....x.#', '############']);
-    const blocked = play(startWorld(level), { A: ['walk(right, 3)'] });
-    expect(blocked.results[0]?.reason).toMatch(/blocked by bot B/);
+    const through = play(startWorld(level), { A: ['walk(right, 3)'] });
+    expect(through.results[0]?.status).toBe('done');
+    expect(bot(through.world, 'A').x).toBeGreaterThan(bot(through.world, 'B').x);
+    const crossing = play(startWorld(level), { A: ['walk(right, 3)'], B: ['walk(left, 1)'] });
+    expect(crossing.results.map((r) => r.status)).toEqual(['done', 'done']);
+    const blocked = play(startWorld(level), { A: ['walk(right, 3)'], B: ['block'] });
+    expect(blocked.results.find((r) => r.bot === 'A')?.reason).toMatch(/^blocked by bot B, which is standing its ground at x=/);
+    // Standing one's ground lasts the slot it was ordered in, no longer.
+    expect(blocked.world.bots.every((b) => !b.blocking)).toBe(true);
+  });
+
+  it("still won't let a bot through one moving the same way: they move as one", () => {
+    const level = makeLevel(['############', '#..........#', '#..........#', '#.AB.....x.#', '############']);
     const follow = play(startWorld(level), { A: ['walk(right, 3)'], B: ['walk(right, 4)'] });
     expect(follow.results.map((r) => r.status)).toEqual(['done', 'done']);
+    expect(bot(follow.world, 'A').x).toBeLessThan(bot(follow.world, 'B').x);
   });
 
   const CRATE = makeLevel(['##############', '#............#', '#............#', '#.AB.c....x..#', '##############'], {

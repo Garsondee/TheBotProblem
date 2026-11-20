@@ -71,6 +71,13 @@ export interface Bot extends Body {
   interrupt: string | null;
   /** The one bot this bot may pass through during the current slot (a swap's partner), or null. */
   passThrough: string | null;
+  /**
+   * Standing its ground on purpose (the block command), for the rest of the slot: no bot can walk or climb
+   * through it. Otherwise a bot that is standing still, or moving the other way, lets others through
+   * (engine/collision.ts): in the first paid games most failed commands were bots stuck behind bots that
+   * never meant to be in the way (Ingram, 2026-11-20: "bots getting constantly stuck isn't very interesting").
+   */
+  blocking: boolean;
 }
 
 export interface Crate extends Body {
@@ -153,6 +160,7 @@ export function createWorld(level: Level, stats: Readonly<Record<string, BotStat
         tripped: false,
         crouched: false,
         passThrough: null,
+        blocking: false,
         alert: 0,
         sawAttack: false,
         slowed: false,
@@ -222,14 +230,15 @@ export function weightOf(body: Body): number {
   return isBot(body) ? body.phys.weight : (body as Crate).weight;
 }
 
-export function describeContact(contact: Contact): string {
+export function describeContact(contact: Contact, world?: World): string {
   switch (contact.kind) {
     case 'tile':
       return contact.tile === 'solid' ? 'a wall' : contact.tile === 'platform' ? 'a platform' : 'the top of a ladder';
     case 'door':
       return `door ${contact.id}`;
     case 'bot':
-      return `bot ${contact.id}`;
+      // A bot only stops another on purpose (block), or by going the same way: say which, so it's clear who did it.
+      return world?.bots.find((b) => b.id === contact.id)?.blocking ? `bot ${contact.id}, which is standing its ground` : `bot ${contact.id}`;
     case 'crate':
       return `crate ${contact.id}`;
   }

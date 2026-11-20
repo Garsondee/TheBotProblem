@@ -310,10 +310,10 @@ class Mover extends Base {
       this.stuck = 0;
       return;
     }
-    if (++this.stuck >= BLOCKED_STEPS) this.fail(this.blockedReason(bot, report));
+    if (++this.stuck >= BLOCKED_STEPS) this.fail(this.blockedReason(world, bot, report));
   }
 
-  private blockedReason(bot: Bot, report: StepReport): string {
+  private blockedReason(world: World, bot: Bot, report: StepReport): string {
     const p = this.lastPush;
     if (p && p.moved === 0) {
       return p.strongEnough
@@ -321,7 +321,7 @@ class Mover extends Base {
         : `crate ${p.crate} didn't move: it weighs ${weightText(p.weight)} (you stopped at ${where(bot)})`;
     }
     const contact = report.stoppedX.get(bot.id);
-    return `blocked by ${contact ? describeContact(contact) : 'something'} at ${where(bot)}`;
+    return `blocked by ${contact ? describeContact(contact, world) : 'something'} at ${where(bot)}`;
   }
 }
 
@@ -373,7 +373,7 @@ class Jumper extends Base {
         this.stuck = 0;
       } else if (++this.stuck >= BLOCKED_STEPS) {
         const contact = report.stoppedX.get(bot.id);
-        this.fail(`blocked during the run-up by ${contact ? describeContact(contact) : 'something'} at ${where(bot)}`);
+        this.fail(`blocked during the run-up by ${contact ? describeContact(contact, world) : 'something'} at ${where(bot)}`);
       }
       return;
     }
@@ -561,7 +561,7 @@ class Climber extends Base {
       if (stopped) this.finish(`climbed down to ${where(bot)}`);
       return;
     }
-    if (stopped && ++this.stuck >= BLOCKED_STEPS) this.fail(`blocked by ${describeContact(stopped)} while climbing, at ${where(bot)}`);
+    if (stopped && ++this.stuck >= BLOCKED_STEPS) this.fail(`blocked by ${describeContact(stopped, world)} while climbing, at ${where(bot)}`);
   }
 }
 
@@ -816,6 +816,8 @@ export function startController(world: World, bot: Bot, command: Command, contex
     case 'shove':
       return socialController(world, bot, command);
     case 'block':
+      // For the rest of this slot no bot can walk or climb through it (engine/collision.ts letsThrough).
+      bot.blocking = true;
       return new Instant(id, command, 'done', null, bot.holding ? `stood its ground, still holding ${bot.holding}` : 'stood its ground');
     case 'hop_over': {
       const other = world.bots.find((b) => b.id === command.target && !b.exited);
@@ -844,7 +846,8 @@ export function startController(world: World, bot: Bot, command: Command, contex
     }
     case 'stand': {
       if (!bot.crouched) return new Instant(id, command, 'done', null, 'already standing');
-      if (!isFree(world, { x: bot.x, y: bot.y, w: bot.w, h: PHYS.botHeight }, bot)) {
+      // Every bot counts here: a bot standing on your head keeps you down.
+      if (!isFree(world, { x: bot.x, y: bot.y, w: bot.w, h: PHYS.botHeight }, bot, 'all')) {
         return new Instant(id, command, 'failed', `no room to stand up here: something is above you, below y=${tiles(bot.y + PHYS.botHeight)}`, null);
       }
       bot.crouched = false;

@@ -69,6 +69,8 @@
     "editModel": "claude-sonnet-5-5",
     "roomMaxTokens": 3000,
     "editMaxTokens": 7000,
-    "capUsd": 0.3
+    "capUsd": 0.3,
+    "spokenModel": "claude-sonnet-5-5",
+    "spokenMaxTokens": 6000
   }
 }

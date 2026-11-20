@@ -168,7 +168,7 @@ export class Controls {
     this.specBtn.addEventListener('click', () => on.spectator());
     // Only for games that have been voiced (npm run voice).
     this.voiceBtn = el('button', 'toggle', 'Voices');
-    this.voiceBtn.title = 'The bots’ voices, made on this machine by Kokoro (npm run voice)';
+    this.voiceBtn.title = 'The bots’ voices and the narrator’s, made on this machine by Kokoro (npm run voice). In a story, a bot’s line is read in a spoken version with the same meaning; the screen shows its exact words.';
     this.voiceBtn.hidden = true;
     this.voiceBtn.addEventListener('click', () => on.voices(this.voiceBtn.getAttribute('aria-pressed') !== 'true'));
     toggles.append(this.thoughtBtn, this.wireBtn, this.specBtn, this.voiceBtn);

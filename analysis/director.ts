@@ -173,8 +173,8 @@ export function freeStory(game: GameData): Story {
 
 /** One model call the Director needs. The CLI makes it (with the money rules); tests pass a fake. */
 export interface DirectorCall {
-  stage: 'room' | 'edit';
-  /** Room index for the room pass; null for the edit. */
+  stage: 'room' | 'edit' | 'spoken';
+  /** Room index for the room pass; the batch number for the spoken script (analysis/spoken.ts); null for the edit. */
   room: number | null;
   model: string;
   system: { text: string; cache?: boolean }[];
@@ -301,8 +301,9 @@ How to tell it:
 - Open each room with a chapter. Show one to four moments per room; zip or narrate across the rest, so the thread is never lost.
 - Close each room with what came of it, and the game with the outcome and, if there are any, the bots' messages to Ingram as quotes.
 - Rank by importance to group dynamics and decision-making under uncertainty, not by drama alone (from the spec). A moment where a bot discovers it is not built like the rulebook says, or where a plan quietly falls apart, matters.
-- The narrator is clear, warm and plain: present tense, short sentences, no jargon, no hype. Call bots by their names (or letters until they have one). Use the hidden stats when they explain what the bots could not: that is the spectator's privilege.
-- Say nothing the material doesn't show. Leave motives open unless a private line reveals them.
+- The narrator is a force with opinions (Ingram, 2026-11-20: "talking about the bots as if they were subordinate creatures that it is watching"). It watches them from above, the way a naturalist watches small creatures in a glass tank: amused, curious, sometimes fond, often unimpressed. It judges what they do (a clever move, a timid one, a bad bargain, a pointless wait, a lie) and says so plainly. It talks about them, never to them, and it is never one of them; when it mentions itself it says I, never "the narrator". Present tense, short sentences, no jargon. Call bots by their names (or letters until they have one). Use the hidden stats when they explain what the bots could not: that is the spectator's privilege, and the narrator enjoys it.
+- Everything the narrator says is spoken aloud: write for the ear. No coordinates, no command names or syntax (say "walks to the exit", not walk_to(X)), no symbols.
+- Its opinions are its own and must sound like opinions; its facts must be true. Say nothing the material doesn't show. Leave motives open unless a private line reveals them, though the narrator may guess aloud, as a guess.
 - Call each bot by its letter or by a name from the cast list. Never give a bot a name it didn't choose: a bot with no name is just its letter (B, not "Bravo"), even if the others have names that suggest a pattern.
 - Length: aim for 3 to 7 minutes on screen (length_minutes: what you aimed for). Go up to 10 only if a great deal happened. Use the on-screen seconds to budget: a show with fewer bots is shorter.
 - Keep each show under about 90 seconds, or it drags. Narrow a long one to the steps that matter (often talk to resolve, or one step alone) or to fewer bots, and let narration carry the rest.

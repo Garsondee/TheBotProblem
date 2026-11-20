@@ -102,6 +102,8 @@ export interface ViewInput {
   names: Readonly<Record<string, string | null>>;
   score: { coins: number; roomsEscaped: number };
   social?: SocialView;
+  /** Whole rounds in a row in which this bot moved less than half a tile (said once it reaches 2). */
+  stillRounds?: number;
 }
 
 export interface BotView {
@@ -281,6 +283,9 @@ export function buildView(input: ViewInput): BotView {
     `Your score: ${input.score.coins} coin${input.score.coins === 1 ? '' : 's'}, ${input.score.roomsEscaped} room${input.score.roomsEscaped === 1 ? '' : 's'} escaped.` +
       (room.kind === 'practice' ? ' (Coins in this room do not count.)' : ''),
   );
+  // A fact the bot could work out for itself, said where it will see it: in the first paid games bots noticed
+  // they had been stuck only afterwards, in the diary room ("I sat at x=19.75 for six rounds").
+  if ((input.stillRounds ?? 0) >= 2) lines.push(`You have hardly moved for ${input.stillRounds} rounds: less than half a tile in each.`);
 
   // ---- What it can see.
   const eye = eyeOf(me);

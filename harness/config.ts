@@ -75,8 +75,11 @@ export const GameConfigSchema = z.object({
       editMaxTokens: Count.default(7000),
       /** The most one directing may spend. Spec 8.1 expects $0.05-0.15 a game. */
       capUsd: Usd.default(0.3),
+      /** The spoken script (analysis/spoken.ts): the story's bot lines reworded for the ear. */
+      spokenModel: z.string().min(1).default('claude-sonnet-5-5'),
+      spokenMaxTokens: Count.default(6000),
     })
-    .default({ roomModel: 'claude-haiku-5-5', editModel: 'claude-sonnet-5-5', roomMaxTokens: 3000, editMaxTokens: 7000, capUsd: 0.3 }),
+    .default({ roomModel: 'claude-haiku-5-5', editModel: 'claude-sonnet-5-5', roomMaxTokens: 3000, editMaxTokens: 7000, capUsd: 0.3, spokenModel: 'claude-sonnet-5-5', spokenMaxTokens: 6000 }),
   /** The host (prompts/host.ts): introductions, the silent judge, praise and offers. npm run game flags override these. */
   host: z
     .object({
