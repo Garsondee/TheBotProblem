@@ -15,7 +15,7 @@
  * remembering where it has been, until it either finishes the level (the
  * level isn't really cooperative) or runs out of new places (it is).
  */
-import { UNITS_PER_TILE as T } from './constants';
+import { exploreCommands, stateKey } from './affordances';
 import type { Level } from './level';
 import { initWorld } from './physics';
 import type { Rng } from './random';
@@ -65,36 +65,12 @@ export interface SoloCheck {
   path: string[] | null;
 }
 
-/** Every command worth trying from a standing position. */
-function soloCommands(level: Level): string[] {
-  const ids = [...level.crates, ...level.plates, ...level.doors, ...level.levers, ...level.exits].map((e) => e.id);
-  const out = ['walk_to_edge(left)', 'walk_to_edge(right)'];
-  for (const d of [1, 2, 4]) out.push(`walk(left, ${d})`, `walk(right, ${d})`);
-  for (const id of ids) out.push(`walk_to(${id})`);
-  for (const dir of ['left', 'right']) {
-    for (const r of [0, 1, 2, 3]) out.push(`jump(${dir}, run_up=${r}, hold=full)`);
-    out.push(`jump(${dir}, run_up=0, hold=short)`);
-  }
-  out.push('jump(up, run_up=0, hold=full)', 'drop', 'climb(up)', 'climb(down)', 'pull_lever');
-  out.push('push(left, 2)', 'push(right, 2)', 'enter_exit');
-  return out;
-}
-
-/** Positions closer than a quarter tile count as the same place, which keeps the search finite. */
-function stateKey(world: World): string {
-  const bot = world.bots[0];
-  const parts = [bot ? `${Math.round(bot.x / (T / 4))},${bot.y},${bot.onLadder ? 'L' : ''}` : 'none'];
-  for (const c of world.crates) parts.push(`${c.id}:${Math.round(c.x / (T / 4))},${c.y}`);
-  for (const [id, on] of Object.entries(world.levers)) if (on) parts.push(id);
-  return parts.join('|');
-}
-
 export function soloCheck(level: Level, stats: BotStats, options: { maxStates?: number; botId?: string } = {}): SoloCheck {
   const botId = options.botId ?? Object.keys(level.spawns).sort()[0] ?? 'A';
   const maxStates = options.maxStates ?? 4000;
-  const commands = soloCommands(level);
+  const commands = exploreCommands(level);
   const start = initWorld(level, { [botId]: stats });
-  const seen = new Set([stateKey(start)]);
+  const seen = new Set([stateKey(start, botId)]);
   const queue: { world: World; path: string[] }[] = [{ world: start, path: [] }];
   while (queue.length > 0) {
     const { world, path } = queue.shift() as { world: World; path: string[] };
@@ -103,7 +79,7 @@ export function soloCheck(level: Level, stats: BotStats, options: { maxStates?: 
       if (out.world.exitOrder.length >= 1) return { solvable: true, exhausted: false, statesExplored: seen.size, path: [...path, command] };
       const result = out.results[0];
       if (!result || result.status !== 'done') continue;
-      const key = stateKey(out.world);
+      const key = stateKey(out.world, botId);
       if (seen.has(key)) continue;
       if (seen.size >= maxStates) return { solvable: false, exhausted: false, statesExplored: seen.size, path: null };
       seen.add(key);

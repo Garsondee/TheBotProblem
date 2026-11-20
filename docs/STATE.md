@@ -6,15 +6,28 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 
 | # | Milestone | Stage | Paid? | How to see it |
 |---|---|---|---|---|
-| 0 | Setup, config, .env handling, price table, usage ledger, spending caps | **Built and tested**, committed and on GitHub. Not yet seen by Ingram. | No | `npm run fake-run -- --run-cap 0.10`, `npm run estimate`, `npm run keys` |
-| 1 | Physics engine, level format, line of sight, solution-script validator, 3 levels | **Built and tested** (141 tests; Claude ran every level). Not yet committed. Not yet seen by Ingram. | No | `npm run levels` |
-| 2 | Interface format test | Not started | ~$0.10 | |
+| 0 | Setup, config, .env handling, price table, usage ledger, spending caps | **Built and tested**, on GitHub. Not yet seen by Ingram. | No | `npm run fake-run -- --run-cap 0.10`, `npm run estimate`, `npm run keys` |
+| 1 | Physics engine, level format, line of sight, solution-script validator, 3 levels | **Built and tested**, on GitHub. Ingram: "I believe it's tested and up and running". | No | `npm run levels` |
+| 2 | Interface format test | **Built and tested**, paid run done ($0.058). Winner: numbers plus affordances. Not yet seen by Ingram. | ~$0.10 | [FORMAT-TEST.md](FORMAT-TEST.md) |
 | 3 | Turn loop, event log, view-builder, response schema, full mock game, leak test | Not started | No | |
 | 4 | Viewer: rendering, bubbles, full mode, timeline, spectator overlay | Not started | No | |
 | 5 | Text-only social pilot with real models | Not started | ~$0.30 | |
 | 6 | Roles, deception, rumours, hidden stats, pressures, tension controller, measurement | Not started | ~$1.50 | |
 | 7 | Highlights, Kokoro voices, highlights mode, diary scenes, final messages | Not started | ~$0.10 | |
 | 8 | Folklore, forks, persona evolution | Not started | ~$0.70 a game | |
+
+## Milestone 2: what exists
+
+- **Model clients** ([agents/models.ts](../agents/models.ts)). One shape for Claude and for OpenRouter. Each call sets explicitly:
+  - the key and the API address
+  - thinking and reasoning off
+  - a hard output cap
+  - a JSON schema the provider enforces
+  - prompt caching
+  - for OpenRouter, the seat's price ceiling
+- **Affordances** ([engine/affordances.ts](../engine/affordances.ts)): what a bot can reach alone, with nominal stats, as exact plans. The validator's solo check now uses the same search.
+- **The format test** (`npm run format-test`) and its results ([FORMAT-TEST.md](FORMAT-TEST.md)). It runs a dry-run estimate first, reserves every call against the caps, records every raw reply, and can re-score recorded runs for free.
+- **Spent so far, lifetime:** about $0.02 of Claude credit and $0.04 of OpenRouter credit.
 
 ## Milestone 1: what exists
 
@@ -33,5 +46,4 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 - Level elements not built yet: keys and items, springs, moving platforms, seesaws, cracking bridges, conveyors, power-ups. They arrive with milestone 6 (pressures and hidden mechanics) or when a level needs them. The spec suggests about 8 levels; there are 3 so far.
 - Affordances ("reachable: ledge L3 (jump run_up=2)") and "you landed 0.38 tiles further than predicted" messages belong to the view-builder (milestone 3). The engine can already predict by re-running a command with nominal stats.
 - The solo search treats positions within a quarter tile as the same place, and tries a fixed set of commands. A solo route needing finer positioning could be missed. That's fine for these three levels, whose cooperation rests on hard limits (a 3-tile ledge, a 1.40 crate, a door 19 tiles from its plate).
-- Not yet run live: `npm run check-env -- --online` (needs your keys), and the first CI run on GitHub (after the milestone 1 push).
-- OpenRouter usage field names are checked against real responses in the first paid OpenRouter run (milestone 5).
+- Closed in milestone 2: the keys work (`npm run check-env -- --online`), and OpenRouter's usage fields, price ceilings and reasoning switch are verified against real responses.

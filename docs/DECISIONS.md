@@ -2,6 +2,23 @@
 
 Newest first within each date. Each entry says what was decided or found, and why. The tiebreaker for anything the spec doesn't cover is the spec's own: "choose the option that keeps the experiment honest".
 
+## 2026-11-20: milestone 2
+
+**View format: numbers plus affordances**, as the spec expected (full results in [FORMAT-TEST.md](FORMAT-TEST.md)). Haiku, DeepSeek and Gemini got every yes/no right with it; ASCII averaged 44% and pictures 52%. Plans are worded as exact recipes ("Plan: ..., copy it exactly"). With "e.g.", models improvised: rewording raised plan success from 50–70% to 80–100%.
+
+**Proposed for milestone 3: `go_to(place)`.** It runs the engine's own plan, so a bot decides where and the engine works out how. Plans use nominal stats, so hidden stats still show when a bot's true stats differ. A mis-copied route is accidental failure, which principle 2 rules out.
+
+**Affordances count only what a bot can do alone.** Other bots are removed from the search, so routes that need help aren't listed (that includes standing on a bot that never moves). Bots have to discover them. Unplanned cooperation is a feature: "A level which can be accidentally solved by using cooperation which isn't told to the agents is still an interesting level, not a bug" (Ingram, 2026-11-20).
+
+**Verified with real calls:**
+- OpenRouter reads `provider.max_price` in dollars per million tokens. A $0.001 ceiling found no provider (404, "No endpoints found that satisfy the max price") and cost nothing.
+- `reasoning: {effort: "none"}` gave 0 reasoning tokens on DeepSeek V4 Flash (which defaults to "high") and on Gemini 3.1 Flash-Lite (on by default). Haiku 5.5 with thinking disabled gave 0 thinking tokens.
+- Prompt caching works. Haiku read 94% of its prompt tokens from the cache and Gemini 36–99%. DeepSeek managed 6–25%, because OpenRouter spreads DeepSeek calls over providers; milestone 5 can try OpenRouter's `session_id` for sticky routing.
+- OpenRouter reports its own cost on every call. Once it charged more than our price table, and the ledger charged the higher figure.
+- Spend: $0.058 in total. The estimates were $0.055 and $0.020 against actual costs of $0.048 and $0.010.
+
+**Output length.** With formats that make models count tiles, Haiku's "thought" ran past 400 tokens despite a 60-word instruction. With numbers it stayed short, so the spec's 450-token cap for turn calls stands.
+
 ## 2026-11-20: milestone 1
 
 **Whole-number physics.** 10,000 units to a tile, velocities in units per 1/60 s step, y pointing up, a body's (x, y) its bottom-left corner. Decimal arithmetic drifts and would break byte-identical replays; with whole numbers, touching versus overlapping is exact and walks stop exactly on target. Bots still see decimals in tiles.

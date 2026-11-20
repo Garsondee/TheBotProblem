@@ -18,7 +18,7 @@ Every bot call is paid from your own credit, so the project is built around neve
 
 ## Commands
 
-Run these in the project folder. Each one is free.
+Run these in the project folder. All are free except `format-test`.
 
 | Command | What it does |
 |---|---|
@@ -29,6 +29,7 @@ Run these in the project folder. Each one is free.
 | `npm run fake-run` | Plays a whole game of fake calls through the real ledger and caps. Add `-- --run-cap 0.10` to watch a cap stop it. |
 | `npm run prices` | Fetches today's OpenRouter prices into `config/openrouter-prices.json`. |
 | `npm run levels` | Shows every level as a picture, plays its solution command by command, and checks it: extreme hidden stats, the "no single bot can finish" search, and an identical trace from the same seed. Add `-- --level L2` for one level, `-- --brief` for the summary. |
+| `npm run format-test` | Milestone 2's test: three models answer questions about one scene in three view formats, and the answers are scored. **Costs real credit (about $0.05).** Add `-- --dry-run` for the estimate first; `-- --rescore runs/<folder>` re-scores a recorded run for free. |
 | `npm test` | Runs every test. `npm run check` also type-checks. |
 
 ## Layout

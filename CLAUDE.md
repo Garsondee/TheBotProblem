@@ -22,6 +22,7 @@ Read first: [docs/SPEC.md](docs/SPEC.md) (Ingram's brief), [docs/STATE.md](docs/
 - Physics works in whole-number units (engine/constants.ts). Anything a bot reads is converted to tiles with two decimals.
 - Result reasons must never reveal hidden stats. State the world's facts, never the bot's numbers.
 - Authoring a level: draw it in config/levels/*.json, give it a solution, run `npm run levels`. Watch the ceiling height: a jump in a low room ends at the ceiling.
+- Unplanned solutions are features, not bugs. A level that bots can solve through cooperation nobody told them about is interesting (Ingram, 2026-11-20); never redesign a level to remove one. The validator only rejects a cooperative-tagged level that ONE bot can finish entirely alone.
 
 ## Gotchas
 
