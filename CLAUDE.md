@@ -14,7 +14,14 @@ Read first: [docs/SPEC.md](docs/SPEC.md) (Ingram's brief), [docs/STATE.md](docs/
 
 ## Commands
 
-`npm run check` (type-check and tests), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`.
+`npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`.
+
+## Code layout rules
+
+- engine/ is pure and deterministic: no file access, no clocks, no Math.random. All randomness comes from engine/random.ts streams. The viewer will import it.
+- Physics works in whole-number units (engine/constants.ts). Anything a bot reads is converted to tiles with two decimals.
+- Result reasons must never reveal hidden stats. State the world's facts, never the bot's numbers.
+- Authoring a level: draw it in config/levels/*.json, give it a solution, run `npm run levels`. Watch the ceiling height: a jump in a low room ends at the ceiling.
 
 ## Gotchas
 

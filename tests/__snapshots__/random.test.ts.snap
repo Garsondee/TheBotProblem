@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`seeded randomness > gives the same numbers for the same seed, every time 1`] = `
+[
+  "0.013257",
+  "0.417330",
+  "0.558258",
+  "0.182959",
+  "0.417577",
+]
+`;

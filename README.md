@@ -28,6 +28,7 @@ Run these in the project folder. Each one is free.
 | `npm run estimate` | Projects one full game's cost per seat against the caps. Add `-- --config config/cast.sonnet.json` to try another cast. |
 | `npm run fake-run` | Plays a whole game of fake calls through the real ledger and caps. Add `-- --run-cap 0.10` to watch a cap stop it. |
 | `npm run prices` | Fetches today's OpenRouter prices into `config/openrouter-prices.json`. |
+| `npm run levels` | Shows every level as a picture, plays its solution command by command, and checks it: extreme hidden stats, the "no single bot can finish" search, and an identical trace from the same seed. Add `-- --level L2` for one level, `-- --brief` for the summary. |
 | `npm test` | Runs every test. `npm run check` also type-checks. |
 
 ## Layout
@@ -36,9 +37,9 @@ Run these in the project folder. Each one is free.
 |---|---|---|
 | `budget/` | Money: usage counting, price table, ledger, spend caps, lifetime record, estimator | 0 (done) |
 | `harness/` | Keys, config loading, run folders, the fake run, the command-line tools (`harness/cli/`) | 0 (done) |
-| `config/` | Caps and token limits (`game.json`), prices, the casts (`cast*.json`) | 0 (done) |
-| `tests/` | Unit and acceptance tests | 0 (done) |
-| `engine/` | Physics, levels, line of sight, solution-script validator | 1 |
+| `config/` | Caps, token limits and hidden-stat ranges (`game.json`), prices, the casts (`cast*.json`), levels (`levels/`) | 0–1 (done) |
+| `tests/` | Unit and acceptance tests | 0–1 (done) |
+| `engine/` | Physics, commands, levels, line of sight, the solution validator. Pure code with no file access, so the viewer can use it too | 1 (done) |
 | `agents/`, `prompts/` | The players (mock, Claude, OpenRouter, replay) and what they're told | 2–5 |
 | `game/` | Turn loop, event log with audiences, view-builder | 3 |
 | `viewer/` | The browser replay viewer | 4 |

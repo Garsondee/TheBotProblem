@@ -38,6 +38,15 @@ export const GameConfigSchema = z.object({
     promptTokenHardLimit: Count,
     spendFile: z.string().min(1),
   }),
+  hiddenStats: z.object({
+    $comment: z.string().optional(),
+    runSpeed: z.number().min(0).max(0.5),
+    jumpHeight: z.number().min(0).max(0.5),
+    jumpDistance: z.number().min(0).max(0.5),
+    weight: z.number().min(0).max(0.5),
+    strength: z.number().min(0).max(0.5),
+    sightRange: z.number().min(0).max(0.5),
+  }),
   maxTokens: z.object({ turn: Count, reflection: Count, diary: Count, finalMessage: Count }),
   estimate: z.object({
     $comment: z.string().optional(),

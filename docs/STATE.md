@@ -1,13 +1,13 @@
 # State board
 
-Updated 2026-11-19. One row per milestone in [SPEC.md](SPEC.md) section 9.
+Updated 2026-11-20. One row per milestone in [SPEC.md](SPEC.md) section 9.
 
 Stages: **not started** → **building** → **built and tested** (the acceptance test passes and Claude has run it) → **seen by Ingram** (finished). Passing tests is not the same as finished.
 
 | # | Milestone | Stage | Paid? | How to see it |
 |---|---|---|---|---|
-| 0 | Setup, config, .env handling, price table, usage ledger, spending caps | **Built and tested.** 83 tests pass; Claude ran every command. Not yet seen by Ingram. | No | `npm run fake-run -- --run-cap 0.10`, `npm run estimate`, `npm run keys` |
-| 1 | Physics engine, level format, line of sight, solution-script validator, 3 levels | Not started | No | |
+| 0 | Setup, config, .env handling, price table, usage ledger, spending caps | **Built and tested**, committed and on GitHub. Not yet seen by Ingram. | No | `npm run fake-run -- --run-cap 0.10`, `npm run estimate`, `npm run keys` |
+| 1 | Physics engine, level format, line of sight, solution-script validator, 3 levels | **Built and tested** (141 tests; Claude ran every level). Not yet committed. Not yet seen by Ingram. | No | `npm run levels` |
 | 2 | Interface format test | Not started | ~$0.10 | |
 | 3 | Turn loop, event log, view-builder, response schema, full mock game, leak test | Not started | No | |
 | 4 | Viewer: rendering, bubbles, full mode, timeline, spectator overlay | Not started | No | |
@@ -16,19 +16,22 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 | 7 | Highlights, Kokoro voices, highlights mode, diary scenes, final messages | Not started | ~$0.10 | |
 | 8 | Folklore, forks, persona evolution | Not started | ~$0.70 a game | |
 
-## Milestone 0: what exists
+## Milestone 1: what exists
 
-- **Usage ledger** ([budget/ledger.ts](../budget/ledger.ts)): prices every call from its usage block (cache reads and writes included) and keeps totals per bot, phase, provider, model and run. For OpenRouter it charges the larger of our price and OpenRouter's own reported cost. It flags hidden reasoning tokens and 1-hour cache writes.
-- **Spend caps** ([budget/spendGuard.ts](../budget/spendGuard.ts)): per run, per bot (a seat can have its own), and lifetime per provider, on disk in `spend/` behind a one-paid-run-at-a-time lock. A phase is reserved at its worst case before it starts, so a cap can never be overshot and a phase that starts always finishes.
-- **Price table**: Anthropic in [config/prices.json](../config/prices.json); OpenRouter fetched live by `npm run prices` and the estimator. OpenRouter seats carry a price ceiling (see DECISIONS.md).
-- **Estimator** (`npm run estimate`): the default cast is expected to cost **$1.00 a game** (worst case $1.56; the run cap catches that). OpenRouter credit is the binding limit at about 8 games.
-- **Keys** (`npm run keys`, `npm run check-env`): read only from `.env`, never printed; seats without a key fall back to mock mode.
-- **Fake run** (`npm run fake-run`): milestone 0's acceptance test, also used as a demo.
+- **Physics** ([engine/physics.ts](../engine/physics.ts), [engine/collision.ts](../engine/collision.ts)): 60 steps a second, whole-number units (10,000 to a tile), gravity, acceleration, air control, coyote time, one-way platforms, ladders, axis-separated box collision. Bots stand on each other, block each other, and push crates; a row of bots pushing together adds up its strength.
+- **Commands** ([engine/commands.ts](../engine/commands.ts), [engine/controllers.ts](../engine/controllers.ts)): walk, walk_to, walk_to_edge, creep, jump, drop, climb, wait, push, pull_lever, hold_lever, stand_on_plate, enter_exit. Up to 6 slots per bot, played in lockstep ([engine/resolve.ts](../engine/resolve.ts)). Impossible commands come back with an exact reason and stop that bot's queue.
+- **Hidden stats** ([engine/stats.ts](../engine/stats.ts)): rolled per bot within the ranges in config/game.json. Results report exact outcomes but never the stats themselves.
+- **Switches**: pressure plates (by weight, stacks included, or by bot count), doors that never close on anyone in the doorway, toggle and hold levers, coins, exits with limited places.
+- **Line of sight** ([engine/sight.ts](../engine/sight.ts)): tile-by-tile ray casting within each bot's hidden sight range.
+- **Levels** (config/levels): *Hold the Door* (plate, door, lever), *Up and Over* (standing on a bot's head to reach a 3-tile ledge, a ladder behind a door), *Heavy Lifting* (two bots push a heavy crate into a hole to hold a plate down, then jump a gap).
+- **Validator** ([engine/validate.ts](../engine/validate.ts)): every solution finishes its level with nominal stats, all 64 extreme stat combinations and 40 random rolls. For cooperative levels, a search over every place the most capable possible bot can reach proves no single bot can finish alone. Stats are re-rolled when a solution fails, with a log.
+- **Determinism**: the same seed gives a byte-identical trace; checked in the tests and in `npm run levels`.
+- **CI**: GitHub Actions runs the type-check, the tests and the level check on every push.
 
 ## Known gaps, to close in later milestones
 
-- `npm run check-env -- --online` hasn't been run yet: it needs your keys in `.env`. It runs no model and spends nothing.
-- OpenRouter's usage field names (`cost`, `cached_tokens`, `cache_write_tokens`) are taken from its docs and checked against real responses only in the first paid OpenRouter run (milestone 5).
-- The estimator uses the spec's token assumptions until milestone 3 can measure real prompts.
-- "Fail loudly if cache hit rates are near zero": the ledger already measures hit rates per bot; the rule that stops a run arrives with the first paid run (milestone 2 or 5).
-- No CI yet (the spec wants level-validity tests in CI). Set it up when the repo has a GitHub remote.
+- Level elements not built yet: keys and items, springs, moving platforms, seesaws, cracking bridges, conveyors, power-ups. They arrive with milestone 6 (pressures and hidden mechanics) or when a level needs them. The spec suggests about 8 levels; there are 3 so far.
+- Affordances ("reachable: ledge L3 (jump run_up=2)") and "you landed 0.38 tiles further than predicted" messages belong to the view-builder (milestone 3). The engine can already predict by re-running a command with nominal stats.
+- The solo search treats positions within a quarter tile as the same place, and tries a fixed set of commands. A solo route needing finer positioning could be missed. That's fine for these three levels, whose cooperation rests on hard limits (a 3-tile ledge, a 1.40 crate, a door 19 tiles from its plate).
+- Not yet run live: `npm run check-env -- --online` (needs your keys), and the first CI run on GitHub (after the milestone 1 push).
+- OpenRouter usage field names are checked against real responses in the first paid OpenRouter run (milestone 5).

@@ -2,6 +2,39 @@
 
 Newest first within each date. Each entry says what was decided or found, and why. The tiebreaker for anything the spec doesn't cover is the spec's own: "choose the option that keeps the experiment honest".
 
+## 2026-11-20: milestone 1
+
+**Whole-number physics.** 10,000 units to a tile, velocities in units per 1/60 s step, y pointing up, a body's (x, y) its bottom-left corner. Decimal arithmetic drifts and would break byte-identical replays; with whole numbers, touching versus overlapping is exact and walks stop exactly on target. Bots still see decimals in tiles.
+
+**Nominal physics, chosen for puzzle design.** Bots are 0.75 × 1.5 tiles. They run 6 tiles/s and reach full speed after 2.5 tiles. Gravity is 30 tiles/s². A full jump lifts the feet 2.2 tiles and a short one 1.0. The consequences:
+- A 2-tile ledge is reachable alone, even with the worst hidden stats.
+- A 3-tile ledge needs a bot to stand on another's head.
+- A 3-tile gap is safe for everyone with a run-up.
+- A 4-tile gap with a raised far side depends on hidden stats.
+Jump speeds are found by search, not sqrt(2gh), because whole steps make the textbook formula about 5% short.
+
+**Two commands beyond the spec's list.**
+- `walk_to(id)` walks along the floor to a crate, door, plate, lever, exit, coin or bot. It follows principle 5 ("coordination, not arithmetic"). It doesn't pathfind: it only walks along the current floor.
+- `enter_exit` makes going through the exit deliberate. With limited places, leaving is a decision, not an accident of walking past.
+
+The spec's grab, throw, pick_up, drop_item, use_item and the social actions arrive with milestone 6. Until then the parser says "isn't part of the game yet".
+
+**Slots.**
+- A slot lasts until every command in it is done and the world has stopped moving, up to 10 s; a command still running then is cut off.
+- `wait` means stand still this slot, and a bot keeps holding a lever while it waits.
+- Blocked means no progress for 10 steps, so a bot following a moving bot is never "blocked". Walking into something that is standing still is.
+- Walking off an edge isn't a failure: the bot falls, the result says where it landed, and its queue goes on.
+
+**Pushing.** Walking never pushes a crate; `push` does. A row of bots pushing the same way adds up its strength, and the chain moves as one so nobody loses contact. Results never reveal hidden stats: "crate C1 didn't move: it weighs 1.40", never "your strength is 0.97". Bots must find their limits from consequences (spec: "The engine never tells them directly").
+
+**Switches.** Plates weigh everything resting on them, stacks included (two bots stacked on a plate weigh 2.0). A door never closes on anyone standing in the doorway. Hold levers stay on only while held; a bot lets go when it does anything except wait.
+
+**Line of sight.** The ray is walked tile by tile (Amanatides–Woo DDA). Solid tiles and closed doors block it; platforms, ladders, crates and bots don't. A line exactly through a corner where two walls meet diagonally is blocked. Sight range is a hidden stat.
+
+**Solo check, for levels tagged cooperative.** It runs a breadth-first search over a fixed set of commands, from every place the most capable bot the stat ranges allow can reach. If even that bot can't finish, no bot can. Places within a quarter tile count as the same place. A search that hits its limit counts as a failure, never as proof.
+
+**The engine never touches files.** Loading lives in harness/, so the browser viewer (milestone 4) can import the engine as it is.
+
 ## 2026-11-19: milestone 0
 
 **Billing checked.** Claude Code is not billed to the bots' API key (Ingram confirmed; no API key or apiKeyHelper was in Claude Code's environment).

@@ -1,0 +1,129 @@
+{
+  "id": "L3-heavy-lifting",
+  "name": "Heavy Lifting",
+  "description": "A heavy plate at the bottom of a hole opens the door. The crate nearby is heavy enough to hold it down, and too heavy for one bot to push.",
+  "tags": [
+    "cooperative"
+  ],
+  "map": [
+    "########################################",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#......................#",
+    "#...............#............$.$.......#",
+    "#...............#.........=-------.....#",
+    "#.........................=............#",
+    "#.........................=............#",
+    "#.ABCDE.c.......d.........=.........x..#",
+    "############p#######...#################",
+    "########################################"
+  ],
+  "key": {
+    "c": {
+      "type": "crate",
+      "id": "C1",
+      "weight": 1.4
+    },
+    "p": {
+      "type": "plate",
+      "id": "P1",
+      "minWeight": 1.3
+    },
+    "d": {
+      "type": "door",
+      "id": "D1",
+      "height": 3,
+      "openWhen": [
+        "P1"
+      ]
+    },
+    "x": {
+      "type": "exit",
+      "id": "X",
+      "slots": 5
+    },
+    "$": {
+      "type": "coin"
+    }
+  },
+  "goal": {
+    "botsThrough": 5
+  },
+  "solution": [
+    {
+      "E": [
+        "walk_to(C1)",
+        "wait",
+        "push(right, 4)",
+        "walk_to_edge(right)",
+        "walk(left, 3)",
+        "jump(right, run_up=3, hold=full)"
+      ],
+      "D": [
+        "wait",
+        "walk_to(E)",
+        "push(right, 4)"
+      ]
+    },
+    {
+      "E": [
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "D": [
+        "walk_to_edge(right)",
+        "walk(left, 3)",
+        "jump(right, run_up=3, hold=full)",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "C": [
+        "wait",
+        "wait",
+        "wait",
+        "walk_to_edge(right)",
+        "walk(left, 3)",
+        "jump(right, run_up=3, hold=full)"
+      ]
+    },
+    {
+      "C": [
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "B": [
+        "walk_to_edge(right)",
+        "walk(left, 3)",
+        "jump(right, run_up=3, hold=full)",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "A": [
+        "wait",
+        "wait",
+        "wait",
+        "walk_to_edge(right)",
+        "walk(left, 3)",
+        "jump(right, run_up=3, hold=full)"
+      ]
+    },
+    {
+      "A": [
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    }
+  ],
+  "notes": "Why one bot cannot finish alone: the crate weighs 1.40 and the strongest possible bot has strength 1.15, so pushing it takes two bots in a row. The plate needs 1.30 and the heaviest possible bot weighs 1.15. Pushed into the hole, the crate holds the plate down and fills the gap."
+}

@@ -1,0 +1,118 @@
+{
+  "id": "L2-up-and-over",
+  "name": "Up and Over",
+  "description": "The exit is on a ledge three tiles up, higher than anyone can jump. A door in the ledge hides a ladder; the lever that opens it is on top.",
+  "tags": [
+    "cooperative"
+  ],
+  "map": [
+    "########################################",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#...............................$......#",
+    "#...........................v.......x..#",
+    "#.....................#=################",
+    "#......................=################",
+    "#.ABCDE...$...........d=################",
+    "########################################",
+    "########################################"
+  ],
+  "key": {
+    "d": {
+      "type": "door",
+      "id": "D1",
+      "height": 2,
+      "openWhen": [
+        "V1"
+      ]
+    },
+    "v": {
+      "type": "lever",
+      "id": "V1",
+      "mode": "toggle"
+    },
+    "x": {
+      "type": "exit",
+      "id": "X",
+      "slots": 5
+    },
+    "$": {
+      "type": "coin"
+    }
+  },
+  "goal": {
+    "botsThrough": 5
+  },
+  "solution": [
+    {
+      "E": [
+        "walk_to(D1)"
+      ],
+      "D": [
+        "walk(right, 15)",
+        "jump(right, run_up=0, hold=full)",
+        "jump(right, run_up=0, hold=full)",
+        "walk_to(V1)",
+        "pull_lever"
+      ],
+      "C": [
+        "walk(right, 13)"
+      ],
+      "B": [
+        "walk(right, 13)"
+      ],
+      "A": [
+        "walk(right, 13)"
+      ]
+    },
+    {
+      "D": [
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "E": [
+        "walk(right, 1.75)",
+        "climb(up)",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "C": [
+        "wait",
+        "wait",
+        "walk(right, 6)",
+        "climb(up)",
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    },
+    {
+      "B": [
+        "walk(right, 7)",
+        "climb(up)",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "A": [
+        "wait",
+        "wait",
+        "walk(right, 8)",
+        "climb(up)",
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    }
+  ],
+  "notes": "Why one bot cannot finish alone: the ledge is 3 tiles up and the best possible jump lifts the feet 2.38 tiles. Standing on another bot's head (1.5 tiles) makes up the difference."
+}

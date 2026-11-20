@@ -1,0 +1,22 @@
+# Runs on every push and pull request: type-check, every test, and the level
+# validity check the spec asks for ("Run validity tests in CI", section 4).
+# Free for public repositories. No API keys are involved: tests can't reach
+# the network, and nothing here makes a paid call.
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run levels -- --brief

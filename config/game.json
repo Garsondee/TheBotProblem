@@ -10,6 +10,15 @@
     "promptTokenHardLimit": 60000,
     "spendFile": "spend/global-spend.json"
   },
+  "hiddenStats": {
+    "$comment": "How far each bot's secret stats may stray from the rulebook's, as a fraction (spec section 4). 0.06 = up to 6% either way.",
+    "runSpeed": 0.06,
+    "jumpHeight": 0.08,
+    "jumpDistance": 0.08,
+    "weight": 0.15,
+    "strength": 0.15,
+    "sightRange": 0.1
+  },
   "maxTokens": {
     "turn": 450,
     "reflection": 1500,

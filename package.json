@@ -16,7 +16,8 @@
     "check-env": "tsx harness/cli/checkEnv.ts",
     "prices": "tsx harness/cli/prices.ts",
     "estimate": "tsx harness/cli/estimate.ts",
-    "fake-run": "tsx harness/cli/fakeRun.ts"
+    "fake-run": "tsx harness/cli/fakeRun.ts",
+    "levels": "tsx harness/cli/levels.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
