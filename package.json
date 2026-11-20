@@ -21,6 +21,7 @@
     "format-test": "tsx harness/cli/formatTest.ts",
     "game": "tsx harness/cli/game.ts",
     "direct": "tsx harness/cli/direct.ts",
+    "voice": "tsx harness/cli/voice.ts",
     "view": "vite --config viewer/vite.config.ts --open"
   },
   "devDependencies": {
@@ -36,6 +37,7 @@
     "@anthropic-ai/sdk": "^1.11.0",
     "@inquirer/password": "^5.3.0",
     "@napi-rs/canvas": "^1.1.1",
+    "kokoro-js": "^1.2.1",
     "zod": "^4.6.7"
   }
 }

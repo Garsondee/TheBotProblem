@@ -16,7 +16,7 @@
  */
 import { UNITS_PER_TILE as T } from './constants';
 import { doorBox, overlaps } from './collision';
-import { TILE, tileAt } from './level';
+import { laddersOf, TILE, tileAt } from './level';
 import type { Body, Bot, World } from './world';
 
 export interface Point {
@@ -112,6 +112,8 @@ export interface Perception {
   exits: string[];
   /** Coins still lying in the room. */
   coins: string[];
+  /** Ladders with at least one tile in sight (ids from laddersOf). */
+  ladders: string[];
 }
 
 /**
@@ -136,6 +138,7 @@ export function perceive(world: World, viewerId: string): Perception {
     levers: level.levers.filter((l) => seenTile(l.tx, l.ty)).map((l) => l.id),
     exits: level.exits.filter((e) => anyTile(column(e.tx, e.ty, 2))).map((e) => e.id),
     coins: level.coins.filter((c) => world.coins.includes(c.id) && seenTile(c.tx, c.ty)).map((c) => c.id),
+    ladders: laddersOf(level).filter((l) => anyTile(column(l.tx, l.ty, l.height))).map((l) => l.id),
   };
 }
 

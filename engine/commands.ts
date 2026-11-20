@@ -32,14 +32,22 @@ export type Command =
   | { kind: 'steal'; target: string }
   | { kind: 'give'; target: string; coins: number }
   | { kind: 'boost'; target: string }
-  | { kind: 'block' };
+  | { kind: 'block' }
+  // Ways past each other (Ingram, 2026-11-20: "smooth away collisions").
+  | { kind: 'swap'; target: string }
+  | { kind: 'hop_over'; target: string }
+  | { kind: 'crouch' }
+  | { kind: 'stand' }
+  // Attacks with bodies (Ingram, 2026-11-20), on dice: see engine/dice.ts and Bot.alert.
+  | { kind: 'push_past'; target: string }
+  | { kind: 'shove'; target: string };
 
 export type ParseResult = { ok: true; command: Command } | { ok: false; reason: string };
 
 /** One line per command, for the rulebook and for error messages. */
 export const COMMAND_HELP: Record<Command['kind'], string> = {
   walk: 'walk(left|right, tiles): walk that far, in quarter tiles, e.g. walk(right, 2.5)',
-  walk_to: 'walk_to(id): walk along your floor to a crate, door, plate, lever, exit, coin or bot',
+  walk_to: 'walk_to(id): walk along your floor to a crate, door, plate, lever, exit, coin, ladder or bot',
   walk_to_edge: 'walk_to_edge(left|right): walk until your toes are at the edge of what you stand on',
   creep: 'creep(left|right, tiles): move slowly; stops at an edge instead of walking off it',
   jump: 'jump(left|right|up, run_up=0..3, hold=short|full): run that many tiles, then jump',
@@ -51,11 +59,17 @@ export const COMMAND_HELP: Record<Command['kind'], string> = {
   hold_lever: 'hold_lever: hold a hold-lever within reach until you do something else',
   stand_on_plate: 'stand_on_plate: walk onto the nearest pressure plate on your floor and stay there',
   enter_exit: 'enter_exit: go through the exit you are standing at',
-  trip: 'trip(bot): trip a bot right beside you; it loses its next command slot; costs you 1 coin',
+  trip: 'trip(bot): trip a bot right beside you, by surprise; it loses its next command slot',
   steal: 'steal(bot): take 1 coin from a bot right beside you',
   give: 'give(bot, coins): give coins to a bot right beside you',
   boost: 'boost(bot): launch the bot standing on your head up into the air',
   block: 'block: stand your ground for this slot, on purpose',
+  swap: 'swap(bot): trade places with a bot right beside you; it works only if that bot commands swap(you) in the same slot',
+  hop_over: 'hop_over(bot): jump over a bot right beside you and land just past it',
+  crouch: 'crouch: crouch to half your height until you stand (you creep while crouched, and cannot jump or climb)',
+  stand: 'stand: stand up from a crouch (needs room above you)',
+  push_past: 'push_past(bot): force your way past a bot right beside you, by surprise; it is slowed for the rest of the round',
+  shove: 'shove(bot): shove a bot right beside you away from you, by surprise; it stops what it was doing',
 };
 
 /** Named in the spec but not part of the game yet. */
@@ -148,11 +162,18 @@ export function parseCommand(text: string): ParseResult {
       return { ok: true, command: { kind: name, target: target() } };
     case 'trip':
     case 'steal':
-    case 'boost': {
+    case 'boost':
+    case 'swap':
+    case 'hop_over':
+    case 'push_past':
+    case 'shove': {
       const id = target();
       if (!id) return fail(`${name} needs a bot, like ${name}(B)`);
       return { ok: true, command: { kind: name, target: id } };
     }
+    case 'crouch':
+    case 'stand':
+      return { ok: true, command: { kind: name } };
     case 'give': {
       const id = (named.get('target') ?? named.get('bot') ?? positional[0])?.toUpperCase();
       const n = Number(named.get('coins') ?? positional[1] ?? 1);
@@ -195,7 +216,14 @@ export function formatCommand(c: Command): string {
     case 'trip':
     case 'steal':
     case 'boost':
+    case 'swap':
+    case 'hop_over':
+    case 'push_past':
+    case 'shove':
       return `${c.kind}(${c.target})`;
+    case 'crouch':
+    case 'stand':
+      return c.kind;
     case 'give':
       return `give(${c.target}, ${c.coins})`;
     case 'block':

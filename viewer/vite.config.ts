@@ -6,6 +6,7 @@
  *   GET /api/runs                 the runs that have a replay, newest first
  *   GET /api/runs/<id>/replay.jsonl
  *   GET /api/runs/<id>/story.json   the Director's story of it, if it has one
+ *   GET /api/runs/<id>/voice/index.json and voice/<hash>.wav   its bots' voices (npm run voice)
  * Nothing else under runs/ is served (responses.jsonl, prompts.jsonl and the
  * Director's working files stay on disk), and run ids are checked so a
  * request can't climb out of runs/.
@@ -20,6 +21,8 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNS = join(ROOT, 'runs');
 const SAFE_ID = /^[\w.-]+$/;
 const SERVED = new Set(['replay.jsonl', 'story.json']);
+/** A voiced line's file: a hash of its voice, speed and words (harness/cli/voice.ts). */
+const VOICE_FILE = /^[0-9a-f]{16}\.wav$/;
 
 /** The story's title, for the list of games. */
 function storyInfo(id: string): { title: string; logline: string; director: string } | null {
@@ -77,6 +80,20 @@ function runsApi(): Plugin {
           const ids = existsSync(RUNS) ? readdirSync(RUNS).filter((d) => SAFE_ID.test(d) && existsSync(join(RUNS, d, 'replay.jsonl'))) : [];
           res.setHeader('content-type', 'application/json');
           res.end(JSON.stringify(ids.sort().reverse().map(describeRun)));
+          return;
+        }
+        // The bots' voices (npm run voice): voice/index.json and the WAV files it names, nothing else.
+        if (parts.length === 3 && parts[1] === 'voice') {
+          const [vid, , vfile] = parts;
+          const ok = vid && SAFE_ID.test(vid) && vfile && (vfile === 'index.json' || VOICE_FILE.test(vfile)) && existsSync(join(RUNS, vid, 'voice', vfile));
+          if (!ok) {
+            res.statusCode = 404;
+            res.end('not found');
+            return;
+          }
+          res.setHeader('content-type', vfile === 'index.json' ? 'application/json; charset=utf-8' : 'audio/wav');
+          res.setHeader('cache-control', vfile === 'index.json' ? 'no-store' : 'max-age=86400');
+          res.end(readFileSync(join(RUNS, vid, 'voice', vfile)));
           return;
         }
         const [id, file] = parts;

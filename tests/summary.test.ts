@@ -45,6 +45,6 @@ describe('summary.md', () => {
     // The private names for next time, when any were chosen.
     if (Object.keys(result.nextNames).length > 0) expect(md).toContain('## Names for the next game (chosen in secret)');
     // A bold heading never runs straight on from the line before it (markdown would fold it in).
-    expect(md).not.toMatch(/[^\n]\n\*\*(Exile votes|Accusations|Trades|Orders|Bodies)/);
+    expect(md).not.toMatch(/[^\n]\n\*\*(Exile votes|Accusations|Trades|Orders|Attacks)/);
   });
 });

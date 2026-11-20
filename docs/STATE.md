@@ -13,8 +13,23 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 | 4 | Viewer: rendering, bubbles, full mode, timeline, spectator overlay | **Seen by Ingram** (finished): she watched the first real game. "The visuals are fantastic, 10/10." | No | `npm run view` |
 | 5 | Text-only social pilot with real models | **Built and tested**: acceptance passed on the second paid game (cache hits confirmed; cost +6% of the estimate for the calls made). Also built: the Director and Story mode, memory between games, the diary room. Three games directed. Not yet seen by Ingram. | ~$0.30 (spent $0.39 on two games, $0.37 directing) | `npm run view`: "Hold One More Slot" and "The Last Door" (the pilots), "Hold the Door" (the first game) |
 | 6 | Roles, deception, rumours, hidden stats, pressures, tension controller, measurement | Not started | ~$1.50 | |
-| 7 | Highlights, Kokoro voices, highlights mode, diary scenes, final messages | Not started | ~$0.10 | |
+| 7 | Highlights, Kokoro voices, highlights mode, diary scenes, final messages | **Partly built and tested**: Kokoro voices (free, on this machine), played in Story and full mode; the highlights mode is M5's Story mode. Not built: diary scenes, the final-messages screen. Not yet heard by Ingram. | Free (local) | `npm run voice -- 20261120-042702-game`, then `npm run view`, "The Last Door", Voices on |
 | 8 | Folklore, forks, persona evolution | Not started | ~$0.70 a game | |
+| L | The levers ([LEVERS.md](LEVERS.md)): Ingram's ways to mess with the simulation | **Built and tested with free players**: the view fix, ways past each other, attacks on dice with guard, talk cadence, shouting, personality and colour, introductions with the silent judge, the host's praise and bounties, voices, turn order by name. **The experiment loop (lever 7): building.** Game 1 played with real models (everything but the turn order): results in LEVERS.md. Not yet seen by Ingram. | Loop budget $3.00; spent $0.37 on game 1 (plus directing it) | `npm run view`: game 1 is `20261120-060021-game` |
+
+## The levers: what exists
+
+All free so far: built and tested with the mock and scripted players, not yet played by a real model. Details and the rule that keeps each honest: [LEVERS.md](LEVERS.md).
+- **The view** lists ladders (H1, H2…) and one-way platforms with exact coordinates; `walk_to(H1)` works.
+- **Ways past each other:** `swap` (both must ask in the same slot), `hop_over`, `crouch` and `stand`.
+- **Attacks on dice:** `trip`, `push_past`, `shove` (and `steal`) succeed unless the target is on guard. Seeing an attack puts every witness fully on guard; each bot relaxes at its own rate, which only it knows. Misses are announced too.
+- **Talk cadence** (`talkEvery` per room, or `--talk-every 3`) and **shouting** (12 words, any step, rude by the rulebook).
+- **Personality and colour:** five traits per agent, kept from game to game; a colour worked out from three of them by a rule nobody is told; one `look` per room. In the viewer the personality colour is the eyes' glow.
+- **The host:** introductions before every room, scored by a silent Haiku judge, each bot told only its own verdict (on by default; `--no-host`, `--no-judge`). Praise for the richest bot (`--praise`) and coins offered for things done (`--bounty first_out:3`, or in a level file). The viewer shows the introductions as bubbles with their verdicts, and the host's words as gold cards; `summary.md` has the judge's scores room by room.
+- **Voices:** `npm run voice -- <run>` (Kokoro-82M, free, on this machine): a voice per bot cast from its personality, for the Director's chosen lines, introductions, diaries and messages to Ingram. The viewer's Voices switch plays them, one at a time, and holds each line on screen until it has been heard.
+- **Turn order by name:** who wins a tie and speaks first goes by name, A to Z, a rule no bot is told; only a rename changes it (`--turn-order letter` for the old order).
+- **Fixed on the way:** the diary room's prompt carried the reflection's instructions as well as its own (since M5). The judge's verdicts were lost when it named bots by name instead of letter (found in game 1).
+- **Tested** (free): the leak test now plays a whole game with the host on, so it covers each bot's private verdict and the judge's reasons (which no bot may see). 273 tests in all.
 
 ## Milestone 5: what exists
 
@@ -88,7 +103,8 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 
 - Level elements not built yet: keys and items, springs, moving platforms, seesaws, cracking bridges, conveyors, power-ups. They arrive with milestone 6 (pressures and hidden mechanics) or when a level needs them. The spec suggests about 8 levels; there are 6 and the practice room.
 - Not in the turn loop yet (spec section 7, milestone 6): predictions, roles, rumours, pressures, the tension controller. Grab, throw and items (spec 7.4) wait for the item elements.
-- Voices (milestone 7): the Director already lists the lines worth voicing (story.json `voiceLines`).
+- Voices (milestone 7): built (`npm run voice`). Still missing: diary scenes and the final-messages screen; introductions can't be quoted in a story yet (stories start at round 1).
+- **Event ids (found 2026-11-20):** `EventLog.add` builds `{ id, ...when, ...body }`, so an event whose body has its own `id` (a rule "R1", a rule vote, an escrow "E2") loses its event number to it. What the bots see is unaffected; the viewer, the transcript, and the leak test's ledger can't address those events uniquely. The fix is to rename those fields (`rule`, `escrow`) everywhere, and to read old replays.
 - The view doesn't say "you landed 0.38 tiles further than predicted". It gives the exact result next to the move menu's prediction, and the bots do the comparison themselves (in the smoke tests, they did).
 - DeepSeek's prompts aren't cached (0% in the smoke tests): OpenRouter spreads its calls over providers. Milestone 5 can try OpenRouter's `session_id` for sticky routing.
 - The solo search treats positions within a quarter tile as the same place, and tries a fixed set of commands. A solo route needing finer positioning could be missed. That's fine for these levels, whose cooperation rests on hard limits (a 3-tile ledge, a 1.40 crate, a door far from its plate, a plate that needs two bots).

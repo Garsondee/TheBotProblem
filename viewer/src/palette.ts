@@ -29,6 +29,26 @@ const LOOKS: Record<string, BotLook> = {
   H: { main: '#f2f2f2', light: '#ffffff', dark: '#a9a9b8', ink: '#22222e', antenna: 'cross' },
 };
 
+/**
+ * A personality colour as eyes can show it: the same hue and saturation,
+ * lifted to at least 68% lightness, so even a "dark greyish blue" reads
+ * against a bot's dark face screen.
+ */
+export function eyeGlow(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return `hsl(${Math.round((h * 60 + 360) % 360)}, ${Math.round(s * 100)}%, ${Math.max(68, Math.round(l * 100))}%)`;
+}
+
 export function botLook(id: string): BotLook {
   return LOOKS[id] ?? (LOOKS.H as BotLook);
 }

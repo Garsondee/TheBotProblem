@@ -18,7 +18,7 @@ import type { BotStats, StatName } from '../../engine/stats';
 import { bestStats, extremeStats, NOMINAL_STATS, rollStats, STAT_NAMES } from '../../engine/stats';
 import { runSolution, soloCheck } from '../../engine/validate';
 import { loadGameConfig } from '../config';
-import { loadLevels } from '../levels';
+import { loadExperimentLevels, loadLevels } from '../levels';
 import { say } from '../log';
 
 const { values } = parseArgs({
@@ -29,7 +29,8 @@ const { values } = parseArgs({
   },
 });
 const ranges = loadGameConfig().hiddenStats;
-const levels = loadLevels().filter((l) => !values.level || l.id.toLowerCase().includes(values.level.toLowerCase()));
+// The standard rooms, then the experiment rooms (config/levels/experiments), which are checked the same way.
+const levels = [...loadLevels(), ...loadExperimentLevels()].filter((l) => !values.level || l.id.toLowerCase().includes(values.level.toLowerCase()));
 let allGood = true;
 
 /** All 64 combinations of every stat at the top or bottom of its range. */

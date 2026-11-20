@@ -16,7 +16,7 @@
 import { PHYS, UNITS_PER_TILE as T } from './constants';
 import type { DoorDef, ExitDef, LeverDef, CoinDef, Level, PlateDef } from './level';
 import { isLadderTop, TILE, tileAt } from './level';
-import type { Body, Contact, World } from './world';
+import type { Body, Bot, Contact, World } from './world';
 
 export interface Box {
   x: number;
@@ -60,8 +60,11 @@ function obstacles(world: World, self: Body): Obstacle[] {
   for (const crate of world.crates) {
     if (crate !== self) out.push({ box: crate, contact: { kind: 'crate', id: crate.id } });
   }
+  // Two bots swapping places pass through each other for that slot, and only each other.
+  const passing = 'passThrough' in self ? (self as Bot).passThrough : null;
   for (const bot of world.bots) {
-    if (bot !== self && !bot.exited) out.push({ box: bot, contact: { kind: 'bot', id: bot.id } });
+    if (bot === self || bot.exited || bot.id === passing || bot.passThrough === self.id) continue;
+    out.push({ box: bot, contact: { kind: 'bot', id: bot.id } });
   }
   return out;
 }

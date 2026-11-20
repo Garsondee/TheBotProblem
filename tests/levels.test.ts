@@ -15,7 +15,7 @@ import { extremeStats, NOMINAL_STATS, rollStats, STAT_NAMES } from '../engine/st
 import { rollPlayableStats, runSolution, soloCheck, validateLevel } from '../engine/validate';
 import { initWorld } from '../engine/physics';
 import { loadGameConfig } from '../harness/config';
-import { loadLevels } from '../harness/levels';
+import { loadExperimentLevels, loadLevels } from '../harness/levels';
 import { makeLevel } from './engineHelpers';
 
 const ranges = loadGameConfig().hiddenStats;
@@ -59,7 +59,8 @@ describe('the levels in config/levels', () => {
     });
   });
 
-  for (const level of puzzles) {
+  // The experiment rooms (config/levels/experiments) are held to the same standard.
+  for (const level of [...puzzles, ...loadExperimentLevels()]) {
     describe(level.id, () => {
       it('is finished by its solution with nominal stats', () => {
         const run = runSolution(level, everyone(level, NOMINAL_STATS));

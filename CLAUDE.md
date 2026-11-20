@@ -14,13 +14,15 @@ Read first: [docs/SPEC.md](docs/SPEC.md) (Ingram's brief), [docs/STATE.md](docs/
 
 ## Commands
 
-`npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run view` (the browser viewer; `?mode=full` skips the story, `?zoom=3&focus=5,3` enlarges a spot, `window.botViewer` jumps to beats and story items), `npm run game -- --mock` / `--scripted` (free games), `npm run game -- --dry-run` (a paid game's estimate, from real prompts), `npm run direct -- <run> --dry-run` / `--free` (the Director's estimate / the free Director), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`.
+`npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run view` (the browser viewer; `?mode=full` skips the story, `?zoom=3&focus=5,3` enlarges a spot, `window.botViewer` jumps to beats and story items), `npm run game -- --mock` / `--scripted` (free games), `npm run game -- --dry-run` (a paid game's estimate, from real prompts), `npm run direct -- <run> --dry-run` / `--free` (the Director's estimate / the free Director), `npm run voice -- <run>` (Kokoro voices, free, local), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`. Game flags for the levers (docs/LEVERS.md): `--talk-every`, `--praise`, `--bounty`, `--no-host`, `--no-judge`, `--turn-order`, `--exile-from`.
+- Turn order (game/order.ts) is by name and never told to the bots: keep it out of the rulebook and every prompt. Sort with plain character order, never `localeCompare` (machine-dependent).
 
 ## The Director and memory
 
 - The Director's story (runs/<id>/story.json) points at moments, not times; viewer/src/story.ts times it, for the viewer and the Director alike. Quotes are event ids: the words always come from the recording, and an excerpt must be in the line word for word.
 - `npm run direct` records every reply in runs/<id>/director/calls.jsonl and answers a repeated request from it for free. It is a paid run like a game: estimate first, a yes, its own cap (config/game.json "director").
 - Memory banks (memory/*.json) update only when a game completes. A damaged bank stops the game rather than starting the bots afresh.
+- The silent judge (prompts/host.ts) is a seat of its own (`~judge`, agents/agent.ts JUDGE_ID): its calls go through the same caps, recording and retries as a bot's. What it scores must never reach a bot's prompt; the leak test plays a hosted game to prove it.
 - The browser pane may report the page as hidden, which throttles animation frames to ~2 a second: check playback with `window.botViewer.seek(t)` and screenshots, not real-time play.
 
 ## Code layout rules
@@ -28,7 +30,7 @@ Read first: [docs/SPEC.md](docs/SPEC.md) (Ingram's brief), [docs/STATE.md](docs/
 - engine/ is pure and deterministic: no file access, no clocks, no Math.random. All randomness comes from engine/random.ts streams. The viewer will import it.
 - Physics works in whole-number units (engine/constants.ts). Anything a bot reads is converted to tiles with two decimals.
 - Result reasons must never reveal hidden stats. State the world's facts, never the bot's numbers.
-- Authoring a level: draw it in config/levels/*.json, give it a solution, run `npm run levels`. Watch the ceiling height: a jump in a low room ends at the ceiling.
+- Authoring a level: draw it in config/levels/*.json, give it a solution, run `npm run levels`. Watch the ceiling height: a jump in a low room ends at the ceiling. Rooms for experiments go in config/levels/experiments/: validated the same way, played only when a game names them (`--levels P0,L7`).
 - Unplanned solutions are features, not bugs. A level that bots can solve through cooperation nobody told them about is interesting (Ingram, 2026-11-20); never redesign a level to remove one. The validator only rejects a cooperative-tagged level that ONE bot can finish entirely alone.
 
 ## Gotchas

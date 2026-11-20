@@ -8,8 +8,14 @@
  * (doors, levers, plates, coins) change only at recorded events, which carry
  * the step they happened at.
  */
+import { PHYS } from '../../engine/constants';
 import type { TraceFrame } from '../../engine/resolve';
 import type { BodyState, ResolveData, RoomData, SwitchState } from './data';
+
+/** A bot's height in units for how it looks: crouched bots are half as tall (engine: crouch). */
+export function heightOf(look: string): number {
+  return look === 'crouch' || look === 'crawl' ? Math.round(PHYS.botHeight / 2) : PHYS.botHeight;
+}
 
 /** One body's frames through one resolve, for looking up any (fractional) step. */
 export class BodyTrack {

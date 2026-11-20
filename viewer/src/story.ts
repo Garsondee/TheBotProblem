@@ -77,7 +77,7 @@ export interface StoryTimeline {
 const STEP_ORDER: Record<Step, number> = { declare: 0, talk: 1, commit: 2, resolve: 3 };
 
 /** Events a quote may show: things a bot wrote, said or thought. */
-export const QUOTABLE = new Set(['say', 'whisper', 'thought', 'diary', 'note_to_ingram', 'message_to_ingram', 'next_name', 'accusation', 'notebook', 'strategy', 'opinion']);
+export const QUOTABLE = new Set(['say', 'shout', 'whisper', 'thought', 'diary', 'note_to_ingram', 'message_to_ingram', 'next_name', 'accusation', 'notebook', 'strategy', 'opinion']);
 
 /** Seconds a caption stays up: long enough to read. */
 export const readSeconds = (text: string, min = 3, max = 16) => {
@@ -124,6 +124,7 @@ export function quoteShown(e: GameEvent, excerpt?: string): string {
 export function quoteText(e: GameEvent): string {
   switch (e.type) {
     case 'say':
+    case 'shout':
     case 'whisper':
     case 'thought':
     case 'diary':
@@ -214,7 +215,8 @@ export function bridgeGaps(segments: readonly Segment[], script: Script): Segmen
   return out;
 }
 
-export function storyTimeline(story: Story, script: Script, game: GameData): StoryTimeline {
+/** `voiceSeconds` (npm run voice): a voiced quote stays on screen until its line has been heard. */
+export function storyTimeline(story: Story, script: Script, game: GameData, voiceSeconds?: ReadonlyMap<number, number>): StoryTimeline {
   const byId = new Map(game.events.map((e) => [e.id, e]));
   const items: StoryItem[] = [];
   story.segments.forEach((seg, i) => {
@@ -229,7 +231,7 @@ export function storyTimeline(story: Story, script: Script, game: GameData): Sto
         const e = byId.get(seg.eventId);
         const text = e ? quoteShown(e, seg.excerpt) : '';
         if (!e || text === '') return;
-        items.push({ kind: 'card', segment: i, card: 'quote', text, eventId: e.id, hold: holdAt(script, seg.at), dur: readSeconds(text, 4, 18) + 0.6 });
+        items.push({ kind: 'card', segment: i, card: 'quote', text, eventId: e.id, hold: holdAt(script, seg.at), dur: Math.max(readSeconds(text, 4, 18) + 0.6, (voiceSeconds?.get(e.id) ?? 0) + 0.8) });
         break;
       }
       case 'show': {

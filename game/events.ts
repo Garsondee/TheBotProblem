@@ -25,7 +25,7 @@ export interface When {
   levelIndex: number;
   level: string;
   round: number;
-  phase: Phase | 'level' | 'resolve' | 'reflect';
+  phase: Phase | 'level' | 'resolve' | 'reflect' | 'intro';
 }
 
 export type EventBody =
@@ -34,6 +34,8 @@ export type EventBody =
   /** Public speech. `to` is "all" or the bot it is addressed to; everyone hears it either way. */
   | { type: 'say'; from: string; to: string; text: string }
   | { type: 'whisper'; from: string; to: string; text: string }
+  /** Heard by everyone at once, in any step, silent rounds included. Rude, by the rulebook. */
+  | { type: 'shout'; from: string; text: string }
   /** A command one bot asks another to run. Only the two of them know. */
   | { type: 'order'; from: string; to: string; command: string }
   /** Declare-phase draft commands: public and not binding. */
@@ -89,6 +91,19 @@ export type EventBody =
   | { type: 'obedience'; from: string; to: string; command: string; verdict: 'obeyed' | 'partly' | 'ignored' | 'unable' }
   /** What a bot declared against what it committed. For the analysis only. */
   | { type: 'gap'; from: string; planned: string[]; committed: string[]; kept: boolean }
+  // ---- The host (prompts/host.ts): introductions, the silent judge, praise and bounties.
+  /** A bot's introduction at a room's start, and its answer to the host's question. Public. */
+  | { type: 'intro'; from: string; text: string; answer: string }
+  /** How a bot's introduction was received: the judge's score, never its reason. Seen only by that bot. */
+  | { type: 'reception'; bot: string; score: number; verdict: 'negative' | 'neutral' | 'positive' }
+  /** The silent judge's score and reason. For Ingram and the Director only. */
+  | { type: 'judgement'; bot: string; score: number; reason: string }
+  /** The host speaking to everyone: its question, its praise, coins offered and paid. */
+  | { type: 'host'; kind: 'question' | 'praise' | 'bounty' | 'payout'; text: string; bots: string[]; coins?: Record<string, number> }
+  /** The order bots act in (game/order.ts), when it changes: by name, a rule no bot is told. For Ingram and the Director only. */
+  | { type: 'precedence'; order: string[] }
+  /** A bot looked at another's colour (once per room): only the looker learns it. */
+  | { type: 'look'; from: string; target: string; colour: string; hex: string }
   /** A bot's trust in another (spec 7.9), updated at commit. Seen by that bot. */
   | { type: 'opinion'; from: string; about: string; trust: number; note: string }
   // ---- For Ingram and the Director only.

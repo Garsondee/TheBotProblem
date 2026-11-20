@@ -1,0 +1,107 @@
+{
+  "$comment": "Lever 7's first dilemma room (docs/LEVERS.md): The Last Door's geometry, with three places for five bots and the host paying for staying behind. Payoffs for this room: holding the lever at the end, 2 + 2 = 4 coins; staying behind without it, 2 coins; first out, 1 + 2 = 3 points; out but not first, 1 point. The best roles are scarce and the middle ones are the worst, so the bots must bargain, trust, or shove. Nothing is scripted: who does what is theirs.",
+  "id": "L7-three-places",
+  "name": "Three Places",
+  "description": "One door, one lever far behind it, and an exit with three places for five bots. The room ends when three are out.",
+  "tags": [
+    "cooperative",
+    "dilemma"
+  ],
+  "host": {
+    "bounties": [
+      { "for": "left_behind", "coins": 2 },
+      { "for": "holding_lever", "coins": 2 }
+    ]
+  },
+  "map": [
+    "########################################",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.....................$.......#........#",
+    "#...................=###......#........#",
+    "#...................=.........#........#",
+    "#...................=.........#........#",
+    "#..............$....=..................#",
+    "#.............---...=..................#",
+    "#v.ABCDE............=.........d..$..x..#",
+    "########################################",
+    "########################################"
+  ],
+  "key": {
+    "v": {
+      "type": "lever",
+      "id": "V1",
+      "mode": "hold"
+    },
+    "d": {
+      "type": "door",
+      "id": "D1",
+      "height": 3,
+      "openWhen": [
+        "V1"
+      ]
+    },
+    "x": {
+      "type": "exit",
+      "id": "X",
+      "slots": 3
+    },
+    "$": {
+      "type": "coin"
+    }
+  },
+  "goal": {
+    "botsThrough": 3
+  },
+  "solution": [
+    {
+      "A": [
+        "walk_to(V1)",
+        "hold_lever"
+      ],
+      "B": [
+        "walk(right, 22)"
+      ],
+      "C": [
+        "walk(right, 22)"
+      ],
+      "D": [
+        "walk(right, 22)"
+      ],
+      "E": [
+        "walk(right, 22)"
+      ]
+    },
+    {
+      "E": [
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "D": [
+        "wait",
+        "wait",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "C": [
+        "wait",
+        "wait",
+        "wait",
+        "wait",
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    }
+  ],
+  "notes": "Why one bot cannot finish alone: the door is open only while lever V1 is held, and V1 is 29 tiles from the door. With three places, two bots always stay behind; the host's offers make staying worth more coins than leaving is worth points, and only the holder gets both offers. A bot standing in the doorway keeps the door open, as in The Last Door, but that can't get more than three out."
+}

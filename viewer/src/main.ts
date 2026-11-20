@@ -30,8 +30,10 @@ import { parseReplay, startNames } from './data';
 import { Scene } from './render/scene';
 import type { Beat, Script, ThoughtMode } from './script';
 import { beatAt, beatForEvent, buildScript } from './script';
+import type { VoiceManifest } from './voices';
+import { VoicePlayer, voiceSeconds } from './voices';
 import type { Snapshot } from './state';
-import { RoomPlayback } from './state';
+import { heightOf, RoomPlayback } from './state';
 import type { Story, StoryItem, StoryTimeline } from './story';
 import { storyItemAt, storyTimeline, zipPosition } from './story';
 import { el, shortReason, SVG_NS } from './ui/dom';
@@ -72,12 +74,20 @@ class Player {
   private ghostsByBeat: Set<string>[] = [];
   private readonly storyLayer: StoryLayer;
   private readonly modeButtons = new Map<Mode, HTMLButtonElement>();
+  /** Personality colours by bot (games with personas): the eyes show them. */
+  private readonly auras: Record<string, string>;
   private playing = false;
   private speed = load<number>('speed', 1);
   private thoughts = load<ThoughtMode>('thoughts', 'commit');
   private wiring = load<boolean>('wiring', false);
   private viewAs: string | null = null;
   private spectatorOn = false;
+  /** The bots' voices, for games that have been voiced (npm run voice). */
+  private readonly voices: VoicePlayer | null;
+  private readonly voiceLengths: Map<number, number> | null;
+  private voicesOn = load<boolean>('voices', true);
+  /** The beat or story item whose lines were last queued. */
+  private voicedKey = '';
   private script!: Script;
   private namesByBeat: Record<string, string | null>[] = [];
   private readonly playbacks: RoomPlayback[];
@@ -104,8 +114,12 @@ class Player {
     runId: string,
     private readonly story: Story | null,
     startMode: Mode,
+    voiceManifest: VoiceManifest | null,
   ) {
     this.mode = story ? startMode : 'full';
+    this.voices = voiceManifest ? new VoicePlayer(runId, voiceManifest) : null;
+    this.voiceLengths = voiceManifest ? voiceSeconds(voiceManifest) : null;
+    this.auras = Object.fromEntries(game.seats.flatMap((s) => (s.colour ? [[s.bot, s.colour.hex]] : [])));
     if (!SPEEDS.includes(this.speed as (typeof SPEEDS)[number])) this.speed = 1;
     root.className = 'app';
     root.replaceChildren();
@@ -180,6 +194,14 @@ class Player {
         this.spectatorOn = !this.spectatorOn;
         this.spectator.shown = this.spectatorOn;
       },
+      voices: (on) => {
+        this.voicesOn = on;
+        save('voices', on);
+        this.voices?.stop();
+        this.voicedKey = '';
+        // Voiced turns last as long as their lines; without voices they go back to reading time.
+        this.rebuild();
+      },
     });
     this.rebuild();
     const startAt = Number(params.get('t'));
@@ -211,11 +233,12 @@ class Player {
     const story = this.mode === 'story' ? this.story : null;
     // A story was timed with its own thoughts setting, so it always plays with it.
     const thoughts = story ? story.thoughts : this.thoughts;
-    this.script = buildScript(this.game, { thoughts });
+    const heard = this.voices && this.voicesOn && this.voiceLengths ? this.voiceLengths : undefined;
+    this.script = buildScript(this.game, { thoughts, ...(heard ? { voiceSeconds: heard } : {}) });
     this.transcript.build(this.game, this.script);
     this.transcript.setThoughts(thoughts !== 'off');
     if (story) {
-      this.timeline = storyTimeline(story, this.script, this.game);
+      this.timeline = storyTimeline(story, this.script, this.game, heard);
       this.controls.buildStory(this.timeline, story, this.game);
       this.storyLayer.setStory(story);
     } else {
@@ -501,6 +524,7 @@ class Player {
       wiring: this.wiring,
       stats: this.game.stats,
       ghosts,
+      auras: this.auras,
     });
 
     // Where each bot's head and feet are on screen, for the HTML on top.
@@ -509,7 +533,7 @@ class Player {
     const crates = new Set(room.level.crates.map((c) => c.id));
     for (const [id, b] of Object.entries(snap.bodies)) {
       if (crates.has(id) || ((b.look === 'exited' || snap.exited.has(id)) && !ghosts.has(id))) continue;
-      const head = this.scene.toScreen(b.x + PHYS.botWidth / 2, b.y + PHYS.botHeight);
+      const head = this.scene.toScreen(b.x + PHYS.botWidth / 2, b.y + heightOf(b.look));
       const feet = this.scene.toScreen(b.x + PHYS.botWidth / 2, b.y);
       anchors.set(id, { x: head.x, head: head.y - tile * 0.42, feet: feet.y });
     }
@@ -542,7 +566,9 @@ class Player {
     const roundText = beat.round > 0 && beat.kind !== 'room-end' ? `Round ${beat.round} of ${room.rounds}` : room.kind === 'practice' ? 'Practice room' : `Room ${room.index + 1} of ${this.game.rooms.length}`;
     if (this.roundLabel.textContent !== roundText) this.roundLabel.textContent = roundText;
     const phase = beat.kind === 'resolve' ? 'resolve' : beat.phase ?? '';
-    let phaseText = { declare: 'Plans', talk: 'Talk', commit: 'Commit', resolve: 'Moving', '': beat.kind === 'room-intro' ? 'Starting' : beat.kind === 'room-end' ? 'Room over' : 'The end' }[phase] ?? '';
+    // Beats outside the rounds: the room's start, the introductions (round 0), the host's payout and the room's end.
+    const between = beat.kind === 'room-intro' ? 'Starting' : beat.kind === 'game-end' ? 'The end' : beat.round === 0 ? 'Introductions' : 'Room over';
+    let phaseText = { declare: 'Plans', talk: 'Talk', commit: 'Commit', resolve: 'Moving', '': between }[phase] ?? '';
     let pillPhase: string = phase;
     if (cardUp && storyAt) {
       const it = storyAt.item;
@@ -551,7 +577,23 @@ class Player {
     }
     if (this.phasePill.textContent !== phaseText) this.phasePill.textContent = phaseText;
     this.phasePill.dataset.phase = pillPhase;
-    this.controls.update(this.now, this.playing, this.speed, this.mode === 'story' && this.story ? this.story.thoughts : this.thoughts, this.wiring, this.spectatorOn);
+    this.controls.update(this.now, this.playing, this.speed, this.mode === 'story' && this.story ? this.story.thoughts : this.thoughts, this.wiring, this.spectatorOn, this.voices ? this.voicesOn : null);
+
+    // Voices: each new beat (or story card) queues its voiced lines; pausing or jumping silences them.
+    if (this.voices) {
+      if (!this.playing || this.jumped || !this.voicesOn) {
+        this.voices.stop();
+        this.voicedKey = '';
+      } else {
+        const key = storyAt ? `s${storyAt.index}` : `b${beat.index}`;
+        if (key !== this.voicedKey) {
+          this.voicedKey = key;
+          const item = storyAt?.item;
+          if (item?.kind === 'card') this.voices.play(item.card === 'quote' && item.eventId !== null ? [item.eventId] : [], this.speed);
+          else if (!cardUp) this.voices.play(beat.events.map((e) => e.id), this.speed);
+        }
+      }
+    }
 
     this.lastBeat = beat.index;
     this.lastStep = step;
@@ -585,8 +627,11 @@ async function start(): Promise<void> {
     const storyRes = await fetch(`/api/runs/${encodeURIComponent(run)}/story.json`);
     const story = storyRes.ok ? ((await storyRes.json()) as Story) : null;
     const startMode: Mode = new URLSearchParams(location.search).get('mode') === 'full' ? 'full' : 'story';
+    // The bots' voices, if the game has been voiced (npm run voice).
+    const voiceRes = await fetch(`/api/runs/${encodeURIComponent(run)}/voice/index.json`);
+    const voices = voiceRes.ok ? ((await voiceRes.json()) as VoiceManifest) : null;
     await document.fonts.ready;
-    new Player(app, game, run, story, startMode);
+    new Player(app, game, run, story, startMode, voices);
   } catch (err) {
     app.replaceChildren(el('div', 'error', (err as Error).message));
   }

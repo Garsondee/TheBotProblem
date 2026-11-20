@@ -100,6 +100,7 @@ export interface ControlHandlers {
   thoughts(mode: ThoughtMode): void;
   wiring(on: boolean): void;
   spectator(): void;
+  voices(on: boolean): void;
 }
 
 export const SPEEDS = [0.5, 1, 1.5, 2, 4] as const;
@@ -114,6 +115,7 @@ export class Controls {
   private readonly thoughtBtn: HTMLButtonElement;
   private readonly wireBtn: HTMLButtonElement;
   private readonly specBtn: HTMLButtonElement;
+  private readonly voiceBtn: HTMLButtonElement;
   private total = 1;
 
   constructor(root: HTMLElement, private readonly on: ControlHandlers) {
@@ -164,7 +166,12 @@ export class Controls {
     this.specBtn = el('button', 'toggle', 'Spectator');
     this.specBtn.title = 'Hidden stats, and seeing through one bot’s eyes';
     this.specBtn.addEventListener('click', () => on.spectator());
-    toggles.append(this.thoughtBtn, this.wireBtn, this.specBtn);
+    // Only for games that have been voiced (npm run voice).
+    this.voiceBtn = el('button', 'toggle', 'Voices');
+    this.voiceBtn.title = 'The bots’ voices, made on this machine by Kokoro (npm run voice)';
+    this.voiceBtn.hidden = true;
+    this.voiceBtn.addEventListener('click', () => on.voices(this.voiceBtn.getAttribute('aria-pressed') !== 'true'));
+    toggles.append(this.thoughtBtn, this.wireBtn, this.specBtn, this.voiceBtn);
     root.append(back, this.play, fwd, this.scrub, this.time, speeds, toggles);
   }
 
@@ -257,7 +264,10 @@ export class Controls {
     this.thoughtBtn.title = on ? 'A story shows every private thought: switch to the full game to choose' : 'Private thoughts: off, at commit only, or always';
   }
 
-  update(t: number, playing: boolean, speed: number, thoughts: ThoughtMode, wiring: boolean, spectator: boolean): void {
+  update(t: number, playing: boolean, speed: number, thoughts: ThoughtMode, wiring: boolean, spectator: boolean, voices: boolean | null = null): void {
+    // null: this game has no voices, so no switch for them.
+    this.voiceBtn.hidden = voices === null;
+    this.voiceBtn.setAttribute('aria-pressed', String(voices === true));
     const pct = `${(t / this.total) * 100}%`;
     this.fill.style.width = pct;
     this.head.style.left = pct;
@@ -413,6 +423,11 @@ export class Cards {
         el('p', '', `“${e.text}”`),
         el('div', 'count', `${e.yes} yes · ${e.no} no · ${e.needed} needed · proposed by ${nameOf(e.by, names)}`),
       );
+    } else if (e?.type === 'host') {
+      // The host: the one voice in the game allowed opinions (prompts/host.ts).
+      this.notice.dataset.tone = 'host';
+      const title = { question: 'A question for everyone', praise: 'Praise', bounty: 'An offer', payout: 'Paid as promised' }[e.kind];
+      this.notice.append(el('div', 'kicker', 'The host'), el('div', 'title', e.kind === 'payout' && e.bots.length === 0 ? 'Nobody earned it' : title), el('p', '', `“${e.text}”`));
     } else if (e?.type === 'exile_result') {
       this.notice.dataset.tone = e.passed ? 'bad' : 'muted';
       this.notice.append(
@@ -438,6 +453,7 @@ export class Spectator {
     const short: Record<string, string> = { runSpeed: 'Run', jumpHeight: 'Jump ↑', jumpDistance: 'Jump →', weight: 'Weight', strength: 'Strength', sightRange: 'Sight' };
     const head = el('tr');
     head.append(el('th', '', 'Bot'), ...STAT_NAMES.map((n) => el('th', '', short[n] ?? n)));
+    if (game.guard) head.append(el('th', '', 'Guard'));
     table.append(head);
     for (const bot of game.bots) {
       const tr = el('tr');
@@ -450,7 +466,33 @@ export class Spectator {
         const td = el('td', v > 0.5 ? 'up' : v < -0.5 ? 'down' : '', `${v > 0 ? '+' : ''}${v.toFixed(1)}%`);
         tr.append(td);
       }
+      // Rounds this bot takes to relax after seeing an attack (it is told its own; nobody else's).
+      if (game.guard) tr.append(el('td', '', `${game.guard[bot] ?? '?'} rd`));
       table.append(tr);
+    }
+    const personas = game.seats.filter((s) => s.persona && s.colour);
+    if (personas.length > 0) {
+      const h = el('h5', '', 'Personalities');
+      h.style.marginTop = '14px';
+      const note = el('p', '', 'Each bot knows only its own. Its colour (its eyes) follows from boldness, warmth and honesty by a rule no bot is told.');
+      const pt = el('table');
+      const ph = el('tr');
+      ph.append(el('th', '', 'Bot'), ...['Bold', 'Warm', 'Honest', 'Curious', 'Patient', 'Colour'].map((x) => el('th', '', x)));
+      pt.append(ph);
+      for (const s of personas) {
+        const tr = el('tr');
+        const first = el('td');
+        first.append(dot(s.bot));
+        tr.append(first);
+        for (const t of ['boldness', 'warmth', 'honesty', 'curiosity', 'patience']) tr.append(el('td', '', String(s.persona?.traits[t] ?? '?')));
+        const c = el('td', 'colour');
+        const sw = el('span', 'swatch');
+        sw.style.background = s.colour?.hex ?? 'transparent';
+        c.append(sw, document.createTextNode(` ${s.colour?.name ?? ''}`));
+        tr.append(c);
+        pt.append(tr);
+      }
+      this.node.append(h, note, pt);
     }
     const view = el('div', 'toggles');
     view.style.marginTop = '12px';

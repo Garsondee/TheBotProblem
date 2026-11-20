@@ -201,6 +201,34 @@ export class StageText {
       }
       node.append(card);
     }
+    // An introduction, before the room's first round: its words, its answer to the host's question, and how
+    // the silent judge received it. The bot was told only the verdict; the reason is for Ingram.
+    for (const e of ev) {
+      if (e.type !== 'intro') continue;
+      const b = el('div', 'bubble speech intro');
+      b.append(who('introduces itself'), el('p', '', e.text));
+      if (e.answer) {
+        const a = el('p', 'answer');
+        a.append(el('b', '', 'Its answer: '), document.createTextNode(e.answer));
+        b.append(a);
+      }
+      node.append(b);
+    }
+    const reception = ev.find((e) => e.type === 'reception');
+    if (reception?.type === 'reception') {
+      const chip = el('div', `chip received ${reception.verdict}`);
+      chip.append(el('span', 'label', 'Received'), el('span', 'cmd', `${reception.verdict} ${reception.score > 0 ? '+' : ''}${reception.score}`));
+      node.append(chip);
+      const judged = ev.find((e) => e.type === 'judgement');
+      if (judged?.type === 'judgement' && judged.reason) node.append(el('div', 'notice judge', `judge: ${judged.reason}`));
+    }
+    // A shout comes first, loud: everyone hears it, and the rulebook calls it rude.
+    for (const e of ev) {
+      if (e.type !== 'shout') continue;
+      const b = el('div', 'bubble shout');
+      b.append(who('SHOUTS'), el('div', '', e.text));
+      node.append(b);
+    }
     const says = ev.filter((e): e is Extract<GameEvent, { type: 'say' }> => e.type === 'say');
     if (says.length > 0) {
       const b = el('div', 'bubble speech');

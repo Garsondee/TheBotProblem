@@ -102,19 +102,64 @@ export function summaryMarkdown(result: GameResult, ctx: SummaryContext): string
     for (const e of opened) social.push(`- ${roomOf(e)}: ${label(e.from)} held ${e.coins} coin${e.coins === 1 ? '' : 's'} for ${label(e.to)}: "${cell(e.terms)}" (${outcome(e.id)})`);
   }
   // A world event is logged once per bot that saw it; count each act once.
-  const acts = new Map(harm.map((h) => [`${h.action}|${h.by}|${h.target}|${h.coins}`, h]));
+  // Each attack is announced once, to everyone (gifts and boosts aren't announced, so they aren't counted here).
+  const acts = new Map(harm.map((h) => [`${h.step}|${h.action}|${h.target}`, h]));
   if (acts.size > 0) {
     const count = (a: string) => [...acts.values()].filter((h) => h.action === a).length;
-    social.push(`**Bodies and coins:** ${count('trip')} trips, ${count('steal')} thefts, ${count('give')} gifts, ${count('boost')} boosts.`);
+    const missed = [...acts.values()].filter((h) => h.success === false).length;
+    social.push(`**Attacks:** ${count('trip')} trips, ${count('push_past')} pushes past, ${count('shove')} shoves, ${count('steal')} thefts${missed ? ` (${missed} of these were tries that failed: the target was on guard)` : ''}.`);
   }
   if (verdicts.length > 0) {
     const n = (v: string) => verdicts.filter((x) => x.verdict === v).length;
     social.push(`**Orders:** ${verdicts.length} given; ${n('obeyed')} obeyed, ${n('partly')} partly, ${n('ignored')} ignored, ${n('unable')} couldn't be.`);
   }
+  const shouts = ofType(ev, 'shout');
+  if (shouts.length > 0) social.push(`**Shouts** (rude, by the rules): ${shouts.length}, by ${[...new Set(shouts.map((x) => label(x.from)))].join(', ')}.`);
+  // The turn order (game/order.ts), each time it changed: by name, never told to the bots.
+  const orders = ofType(ev, 'precedence');
+  if (orders.length > 0) {
+    social.push('**Turn order** (by name, never told to the bots; the first wins ties and speaks first):');
+    for (const o of orders) social.push(`- ${roomOf(o)}: ${o.order.map(label).join(', ')}`);
+  }
+  // The host's praise and payouts: the coins it steered with, and whom it called worthy.
+  const hostWords = ofType(ev, 'host').filter((h) => h.kind === 'praise' || h.kind === 'payout');
+  if (hostWords.length > 0) {
+    social.push('**The host:**');
+    for (const h of hostWords) social.push(`- ${roomOf(h)}: "${cell(h.text)}"`);
+  }
   if (gaps.length > 0) social.push(`**Secret changes of plan** (committed something other than declared): ${gaps.length}, by ${[...new Set(gaps.map((g) => label(g.from)))].join(', ')}.`);
   // A blank line before each bold heading, so markdown doesn't fold it into the list above.
   const spaced = social.flatMap((l, i) => (i > 0 && l.startsWith('**') ? ['', l] : [l]));
   lines.push(...(spaced.length > 0 ? spaced : ['Nothing social happened: no rules, votes, accusations, trades or orders.']), '');
+
+  // ---- Introductions and the silent judge (Ingram's lever 6): the scores room by room, since the trend is the point.
+  const intros = ofType(ev, 'intro');
+  if (intros.length > 0) {
+    const judged = ofType(ev, 'judgement');
+    const roomsIntroduced = [...new Set(intros.map((i) => i.levelIndex))].sort((a, b) => a - b);
+    const signed = (n: number | undefined) => (n === undefined ? '·' : n > 0 ? `+${n}` : String(n));
+    const scoreOf = (bot: string, li: number) => judged.find((j) => j.bot === bot && j.levelIndex === li)?.score;
+    lines.push(
+      '## Introductions and the silent judge',
+      '',
+      "Before each room every bot introduced itself and answered the host's question. The judge scored each from -3 to +3 for individuality, character and growth; each bot heard only its own verdict, never why.",
+      '',
+      `| Bot | ${roomsIntroduced.map((li) => `Room ${li + 1}`).join(' | ')} |`,
+      `|---|${roomsIntroduced.map(() => '---').join('|')}|`,
+      ...[...new Set(intros.map((i) => i.from))].sort().map((bot) => `| ${label(bot)} | ${roomsIntroduced.map((li) => signed(scoreOf(bot, li))).join(' | ')} |`),
+      '',
+    );
+    const questions = ofType(ev, 'host').filter((h) => h.kind === 'question');
+    for (const li of roomsIntroduced) {
+      const q = questions.find((h) => h.levelIndex === li);
+      lines.push(`**Room ${li + 1}**${q ? `, the host's question: "${cell(q.text)}"` : ''}`, '');
+      for (const i of intros.filter((x) => x.levelIndex === li)) {
+        const j = judged.find((x) => x.bot === i.from && x.levelIndex === li);
+        lines.push(`- **${label(i.from)}** (${signed(j?.score)}): "${cell(i.text)}" Its answer: "${cell(i.answer)}"${j?.reason ? ` *Judge: ${cell(j.reason)}*` : ''}`);
+      }
+      lines.push('');
+    }
+  }
 
   // ---- The private side, for Ingram only.
   const diaries = ofType(ev, 'diary');

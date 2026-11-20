@@ -12,6 +12,15 @@
  *   --run-cap 0.50      this run's spending cap in US dollars (default: config/game.json)
  *   --exile-from 1      the room (0 = the first) from which exile votes can be called,
  *                       for this game only (default: config/game.json, "social")
+ *   --talk-every 3      talk only every 3rd round in every room (the rest are silent), for this game only
+ *   --no-host           no host this game: no introductions, judge, praise or offers (config/game.json "host")
+ *   --no-judge          introductions, but nobody judges them
+ *   --praise            the host congratulates the richest bot at each room's start
+ *   --bounty first_out:3,left_behind:2
+ *                       coins the host offers in every puzzle room, paid at its end
+ *                       (first_out, richest, left_behind, holding_lever)
+ *   --turn-order letter who acts first when it matters: by letter, or by name (config/game.json "social";
+ *                       by name, the bots are never told)
  *   --check-run runs/x  no game: the estimate check for a game already played (give it
  *                       that game's seed, rooms and memory options); free
  *
@@ -27,8 +36,10 @@ import { join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import type { Agent } from '../../agents/agent';
+import { JUDGE_ID } from '../../agents/agent';
 import { LlmAgent } from '../../agents/llmAgent';
 import { MockAgent } from '../../agents/mockAgent';
+import { MockJudge } from '../../agents/mockJudge';
 import { ClaudeClient, OpenRouterClient } from '../../agents/models';
 import { ScriptedAgent } from '../../agents/scriptedAgent';
 import type { CallShape, SeatPlan } from '../../budget/estimate';
@@ -42,9 +53,11 @@ import type { PriceTable } from '../../budget/prices';
 import { priceOf } from '../../budget/prices';
 import { SpendGuard } from '../../budget/spendGuard';
 import { cacheHitShare } from '../../budget/usage';
-import type { Level } from '../../engine/level';
+import type { BountyDef, Level } from '../../engine/level';
+import { BountySchema } from '../../engine/level';
 import { RunRandom } from '../../engine/random';
-import type { GameResult, Money } from '../../game/game';
+import type { GameResult, HostSettings, Money } from '../../game/game';
+import type { TurnOrder } from '../../game/order';
 import { runGame } from '../../game/game';
 import type { MemoryBank } from '../../game/memory';
 import { agentIdsFor, dealLetters, emptyBank, identitiesFor, updateBank } from '../../game/memory';
@@ -56,7 +69,7 @@ import { capsFor, configProblems, loadCast, loadGameConfig, loadPrices, PATHS, P
 import { KeyRing } from '../env';
 import { writeJsonAtomic } from '../files';
 import { FileOutput } from '../gameFiles';
-import { loadLevels } from '../levels';
+import { loadExperimentLevels, loadLevels } from '../levels';
 import { say, warn } from '../log';
 import { createRunFolder, makeRunId } from '../runFolder';
 
@@ -76,6 +89,12 @@ const { values } = parseArgs({
     'continue-from': { type: 'string' },
     'exile-from': { type: 'string' },
     'check-run': { type: 'string' },
+    'talk-every': { type: 'string' },
+    'no-host': { type: 'boolean', default: false },
+    'no-judge': { type: 'boolean', default: false },
+    praise: { type: 'boolean', default: false },
+    bounty: { type: 'string' },
+    'turn-order': { type: 'string' },
   },
 });
 
@@ -83,7 +102,8 @@ const game = loadGameConfig();
 const cast = loadCast(values.cast ? resolve(values.cast) : PATHS.cast);
 const allLevels = loadLevels();
 const wanted = values.levels?.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const levels: Level[] = wanted ? allLevels.filter((l) => wanted.some((w) => l.id.toLowerCase().startsWith(w))) : allLevels;
+// Experiment rooms (config/levels/experiments) play only when a game names them.
+const levels: Level[] = wanted ? [...allLevels, ...loadExperimentLevels()].filter((l) => wanted.some((w) => l.id.toLowerCase().startsWith(w))) : allLevels;
 if (levels.length === 0) {
   warn(`No rooms match --levels ${values.levels}. Rooms: ${allLevels.map((l) => l.id).join(', ')}`);
   process.exit(1);
@@ -94,7 +114,7 @@ const free = values.mock || values.scripted;
 const label = values.mock ? 'mock' : values.scripted ? 'scripted' : 'game';
 const runIdGuess = makeRunId(label);
 const seed = values.seed ?? runIdGuess;
-const maxTokens = { turn: game.maxTokens.turn, reflection: game.maxTokens.reflection, diary: game.maxTokens.diary };
+const maxTokens = { turn: game.maxTokens.turn, reflection: game.maxTokens.reflection, diary: game.maxTokens.diary, intro: game.host.introMaxTokens, judge: game.host.judgeMaxTokens };
 
 // ---------------------------------------------------------------- who sits where, and what they remember
 // Paid games keep each agent's memory (name, notebook, strategy) in a bank, unless --fresh; free games only with --memory.
@@ -120,8 +140,53 @@ if (useMemory) {
 }
 
 // A short game (a pilot) can unlock exile earlier; the rulebook tells the bots from which room.
-const social = values['exile-from'] !== undefined ? { ...game.social, exileFromRoom: Math.max(0, Math.floor(Number(values['exile-from']))) } : game.social;
+const turnOrderFlag = values['turn-order'];
+if (turnOrderFlag !== undefined && turnOrderFlag !== 'letter' && turnOrderFlag !== 'name') {
+  warn('--turn-order is letter or name.');
+  process.exit(1);
+}
+const turnOrder: TurnOrder = turnOrderFlag === 'letter' || turnOrderFlag === 'name' ? turnOrderFlag : game.social.turnOrder;
+const social = {
+  ...game.social,
+  ...(values['exile-from'] !== undefined ? { exileFromRoom: Math.max(0, Math.floor(Number(values['exile-from']))) } : {}),
+  turnOrder,
+};
 if (values['exile-from'] !== undefined) say(`Exile votes from room ${social.exileFromRoom + 1} of ${levels.length} (this game only).`);
+say(social.turnOrder === 'name' ? 'Turn order: by name, A to Z (never told to the bots).' : 'Turn order: by letter.');
+
+// The talk cadence for this game, overriding each room's own (an experiment's setting).
+const talkEvery = values['talk-every'] ? Math.max(1, Math.floor(Number(values['talk-every']))) : undefined;
+if (talkEvery) say(`Talk only every ${talkEvery} rounds, in every room (this game only).`);
+
+// The host (prompts/host.ts): config/game.json's, changed for this game by the flags.
+const extraBounties: BountyDef[] = (values.bounty ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map((s) => {
+    const [kind, coins] = s.split(':');
+    const parsed = BountySchema.safeParse({ for: kind, coins: Number(coins) });
+    if (!parsed.success) {
+      warn(`--bounty ${s}: give it as kind:coins, with kind one of first_out, richest, left_behind, holding_lever, and 1 to 20 coins.`);
+      process.exit(1);
+    }
+    return parsed.data;
+  });
+const noHost = values['no-host'];
+const host: HostSettings = {
+  intros: !noHost && game.host.intros,
+  judge: !noHost && !values['no-judge'] && game.host.judge,
+  praise: !noHost && (values.praise || game.host.praise),
+  bounties: noHost ? [] : [...game.host.bounties, ...extraBounties],
+  roomOffers: !noHost,
+};
+say(
+  noHost
+    ? 'No host this game.'
+    : `The host: ${[host.intros ? `introductions${host.judge ? ` (judged by ${free ? 'the free mock judge' : game.host.judgeModel})` : ' (not judged)'}` : null, host.praise ? 'praise for the richest' : null, host.bounties.length > 0 ? `offers in every puzzle room (${host.bounties.map((b) => `${b.for} ${b.coins}`).join(', ')})` : null]
+        .filter(Boolean)
+        .join('; ') || 'nothing but the rooms\' own offers'}.`,
+);
 
 const baseOptions = {
   seed,
@@ -130,6 +195,8 @@ const baseOptions = {
   maxTokens,
   promptTokenLimit: game.budget.promptTokenHardLimit,
   social,
+  host,
+  ...(talkEvery ? { talkEvery } : {}),
   ...(identities ? { identities } : {}),
   ...(maxRounds ? { maxRounds } : {}),
 };
@@ -147,6 +214,8 @@ async function remember(result: GameResult): Promise<void> {
     nextNames: result.nextNames,
     notebooks: result.notebooks,
     strategies: result.strategies,
+    personas: result.personas,
+    introductions: result.introductions,
   });
   await saveBank(bankName, bank);
   say(`Memory bank "${bankName}" updated: ${Object.keys(result.nextNames).length} bot${Object.keys(result.nextNames).length === 1 ? '' : 's'} chose a new name for next time.`);
@@ -162,7 +231,7 @@ async function remember(result: GameResult): Promise<void> {
 let estimateCheck: ((entries: readonly LedgerEntry[]) => { expectedUsd: number; chargedUsd: number; lines: string[] }) | null = null;
 
 /** Play the game and save everything to a new run folder. */
-async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: number | null): Promise<GameResult> {
+async function playAndSave(agents: Agent[], judge: Agent | undefined, money: Money | null, runCapUsd: number | null): Promise<GameResult> {
   const { runId, runDir } = createRunFolder(PATHS.runs, runIdGuess);
   say(`Run folder: ${relative(PROJECT_ROOT, runDir)}`);
   writeFileSync(join(runDir, 'cast.json'), `${JSON.stringify(cast, null, 2)}\n`);
@@ -172,6 +241,7 @@ async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: numb
     result = await runGame({
       ...baseOptions,
       agents,
+      ...(judge ? { judge } : {}),
       output,
       money,
       log: (line) => say(line),
@@ -230,7 +300,7 @@ async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: numb
 // ---------------------------------------------------------------- free games
 if (free) {
   const agents: Agent[] = botIds.map((id) => (values.scripted ? new ScriptedAgent(id, levels) : new MockAgent(id, seed)));
-  await remember(await playAndSave(agents, null, null));
+  await remember(await playAndSave(agents, host.judge ? new MockJudge() : undefined, null, null));
   process.exit(0);
 }
 
@@ -266,10 +336,12 @@ if (routerModels.length > 0) {
 say('');
 say('Measuring prompts on a free mock game of the same rooms...');
 const probe = new MemoryOutput();
-await runGame({ ...baseOptions, agents: botIds.map((id) => new MockAgent(id, seed)), output: probe, money: null });
+await runGame({ ...baseOptions, agents: botIds.map((id) => new MockAgent(id, seed)), ...(host.judge ? { judge: new MockJudge() } : {}), output: probe, money: null });
 const blocks = new Map(probe.prompts.filter((p) => p.rec === 'block').map((p) => [p.hash as string, (p.text as string).length]));
 const sent = probe.prompts.filter((p) => p.rec === 'prompt' && p.attempt === 1);
-const turnPrompts = sent.filter((p) => p.phase !== 'reflect' && p.phase !== 'diary');
+const turnPrompts = sent.filter((p) => ['declare', 'talk', 'commit'].includes(p.phase as string));
+const introPrompts = sent.filter((p) => p.phase === 'intro');
+const judgePrompts = sent.filter((p) => p.phase === 'judge');
 const reflectPrompts = sent.filter((p) => p.phase === 'reflect');
 const diaryPrompts = sent.filter((p) => p.phase === 'diary');
 const meanChars = (list: Record<string, unknown>[], part: 'user' | 'system') =>
@@ -282,7 +354,15 @@ const NOTEBOOK_ALLOWANCE_CHARS = 1_500;
 const prefixChars = meanChars(turnPrompts, 'system') + NOTEBOOK_ALLOWANCE_CHARS;
 // The start of each view (what the bot sees, its moves, last round) is cached too: written by the round's first call, read by the other two.
 const stableViewChars = turnPrompts.reduce((n, p) => n + ((p.userCacheBreak as number | null) ?? 0), 0) / Math.max(1, turnPrompts.length);
-const turnChars = prefixChars + meanChars(turnPrompts, 'user') + TALK_ALLOWANCE_CHARS;
+// Real introductions run to about 100 words where the mock's are 15. A bot hears the others' in its round-1
+// view (three calls per room, spread here over all its turns), and its own last one comes back in its next
+// introduction prompt; the judge reads each bot's with up to three earlier ones (always three with memory).
+const INTRO_EXTRA_CHARS = 450;
+const introViewChars = host.intros ? (INTRO_EXTRA_CHARS * (botIds.length - 1) * 3 * levels.length) / Math.max(1, turnPrompts.length / botIds.length) : 0;
+const turnChars = prefixChars + meanChars(turnPrompts, 'user') + TALK_ALLOWANCE_CHARS + introViewChars;
+const introChars = prefixChars + meanChars(introPrompts, 'user') + INTRO_EXTRA_CHARS;
+const introsPerJudge = botIds.length * (levels.reduce((n, _, k) => n + 1 + (useMemory ? 3 : Math.min(k, 3)), 0) / levels.length);
+const judgeChars = meanChars(judgePrompts, 'system') + meanChars(judgePrompts, 'user') + INTRO_EXTRA_CHARS * introsPerJudge;
 const reflectChars = prefixChars + meanChars(reflectPrompts, 'user') + TALK_ALLOWANCE_CHARS;
 const diaryChars = prefixChars + meanChars(diaryPrompts, 'user') + TALK_ALLOWANCE_CHARS;
 
@@ -297,14 +377,16 @@ if (claude && sample) {
 }
 const tokensOf = (chars: number) => Math.ceil(chars / charsPerToken);
 const totalRounds = levels.reduce((n, l) => n + roundsOf(l), 0);
-const turnsPerSeat = totalRounds * 3;
+// Rounds with talk get three calls (declare, talk, commit); silent rounds (the talk cadence) get one.
+const talkRounds = levels.reduce((n, l) => n + Math.ceil(roundsOf(l) / (talkEvery ?? l.talkEvery ?? 1)), 0);
+const turnsPerSeat = talkRounds * 2 + totalRounds;
 const shapes: CallShape[] = [
   {
     // A round's first call (declare) reads the rulebook and notebook from the cache and writes the round's view:
     // a cache write costs a quarter more than plain input, so that quarter is added.
     kind: 'turn',
     phases: ['declare'],
-    callsPerGame: totalRounds,
+    callsPerGame: talkRounds,
     promptTokens: tokensOf(turnChars) + Math.ceil(tokensOf(stableViewChars) / 4),
     cacheableTokens: tokensOf(prefixChars),
     expectedOutputTokens: game.estimate.turnOutputTokens,
@@ -314,7 +396,7 @@ const shapes: CallShape[] = [
     // Its other two calls (talk, commit) read the view from the cache as well.
     kind: 'turn',
     phases: ['talk', 'commit'],
-    callsPerGame: totalRounds * 2,
+    callsPerGame: talkRounds + totalRounds,
     promptTokens: tokensOf(turnChars),
     cacheableTokens: tokensOf(prefixChars + stableViewChars),
     expectedOutputTokens: game.estimate.turnOutputTokens,
@@ -342,6 +424,35 @@ const shapes: CallShape[] = [
     maxOutputTokens: maxTokens.diary,
   },
 ];
+if (host.intros) {
+  shapes.push({
+    // Each bot's introduction before each room, sent without cache marks: its own reply schema could never
+    // read the turns' cache, and writing one costs more than plain input.
+    kind: 'intro',
+    phases: ['intro'],
+    callsPerGame: levels.length,
+    promptTokens: tokensOf(introChars),
+    cacheableTokens: 0,
+    uncached: true,
+    expectedOutputTokens: game.estimate.introOutputTokens,
+    maxOutputTokens: maxTokens.intro,
+  });
+}
+// The silent judge: one call per room, on its own seat, never cached (its prompt is new every time).
+const judgeSeat: Seat | null = host.intros && host.judge ? { botId: JUDGE_ID, provider: 'anthropic', model: game.host.judgeModel, caching: 'none' } : null;
+const judgeShapes: CallShape[] = [
+  {
+    kind: 'judge',
+    phases: ['judge'],
+    callsPerGame: levels.length,
+    promptTokens: tokensOf(judgeChars),
+    cacheableTokens: 0,
+    uncached: true,
+    expectedOutputTokens: game.estimate.judgeOutputTokens,
+    maxOutputTokens: maxTokens.judge,
+  },
+];
+const judgePlan: SeatPlan | null = judgeSeat ? { botId: JUDGE_ID, model: judgeSeat.model, provider: 'anthropic', caching: 'none' } : null;
 // One plan per letter as dealt this game (with memory on, letters are dealt afresh, so a letter's model changes from game to game).
 const plans: SeatPlan[] = botIds.map((letter) => {
   const s = seatOf(letter);
@@ -356,16 +467,22 @@ const plans: SeatPlan[] = botIds.map((letter) => {
   };
 });
 // Cache writes of the rulebook and notebook: once at the start, and again after each room (a reflection rewrites the notebook).
-const estimate = estimateCast(plans, prices, shapes, levels.length + 1);
+const seatsEstimate = estimateCast(plans, prices, shapes, levels.length + 1);
+const judgeEstimate = judgePlan ? estimateSeat(judgePlan, priceOf(prices, judgePlan.model), judgeShapes, 0) : null;
+const estimate = {
+  seats: [...seatsEstimate.seats, ...(judgeEstimate ? [judgeEstimate] : [])],
+  expectedUsd: seatsEstimate.expectedUsd + (judgeEstimate?.expectedUsd ?? 0),
+  worstCaseUsd: seatsEstimate.worstCaseUsd + (judgeEstimate?.worstCaseUsd ?? 0),
+};
 estimateCheck = (entries) => {
   const lines: string[] = ['  Estimate check: the calls actually made, priced by the estimate (expected / charged):'];
   let expectedUsd = 0;
   let chargedUsd = 0;
-  for (const plan of plans) {
+  for (const [plan, planShapes, writes] of [...plans.map((p) => [p, shapes, levels.length + 1] as const), ...(judgePlan ? [[judgePlan, judgeShapes, 0] as const] : [])]) {
     const mine = entries.filter((e) => e.botId === plan.botId);
     if (mine.length === 0 || plan.provider === 'mock') continue;
-    const actual = shapes.map((s) => ({ ...s, callsPerGame: mine.filter((e) => s.phases?.includes(e.phase)).length }));
-    const expected = estimateSeat(plan, priceOf(prices, plan.model), actual, levels.length + 1).expectedUsd;
+    const actual = planShapes.map((s) => ({ ...s, callsPerGame: mine.filter((e) => s.phases?.includes(e.phase)).length }));
+    const expected = estimateSeat(plan, priceOf(prices, plan.model), actual, writes).expectedUsd;
     const charged = mine.reduce((n, e) => n + e.chargedUsd, 0);
     expectedUsd += expected;
     chargedUsd += charged;
@@ -386,7 +503,10 @@ const caps = {
 };
 
 say('');
-say(`Estimate (nothing spent yet), if every round of every room is played: ${turnsPerSeat} turn calls, ${levels.length} diary entr${levels.length === 1 ? 'y' : 'ies'} and ${levels.length} reflection${levels.length === 1 ? '' : 's'} per bot. Rooms that end sooner cost less.`);
+say(
+  `Estimate (nothing spent yet), if every round of every room is played: ${turnsPerSeat} turn calls, ${host.intros ? `${levels.length} introductions, ` : ''}${levels.length} diary entr${levels.length === 1 ? 'y' : 'ies'} and ${levels.length} reflection${levels.length === 1 ? '' : 's'} per bot` +
+    `${judgeSeat ? `, and ${levels.length} calls to the judge (${judgeSeat.model})` : ''}. Rooms that end sooner cost less.`,
+);
 say(
   `  Prompts: about ${shapes[1]?.promptTokens} tokens a turn (${shapes[0]?.cacheableTokens} of them the cached rulebook and notebook, ` +
     `${(shapes[1]?.cacheableTokens ?? 0) - (shapes[0]?.cacheableTokens ?? 0)} the round's view, cached after its first call), about ${shapes[2]?.promptTokens} a reflection.`,
@@ -444,5 +564,14 @@ const agents: Agent[] = botIds.map((letter) => {
   const s = seatOf(letter);
   return s.provider === 'mock' ? new MockAgent(letter, seed) : new LlmAgent(s, { claude, router }, priceOf(prices, s.model));
 });
-await remember(await playAndSave(agents, { guard, ledger, global }, caps.runUsd));
+// The judge is a real model in a paid game; without the Anthropic key it can't sit, so nobody judges.
+let judge: Agent | undefined;
+if (judgeSeat) {
+  if (claude) judge = new LlmAgent(judgeSeat, { claude, router }, priceOf(prices, judgeSeat.model));
+  else {
+    warn('The judge needs the Anthropic key, which is missing: introductions will not be judged this game.');
+    host.judge = false;
+  }
+}
+await remember(await playAndSave(agents, judge, { guard, ledger, global }, caps.runUsd));
 process.exit(0);

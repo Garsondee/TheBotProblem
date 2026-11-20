@@ -13,9 +13,11 @@
  * command's result, every world event, and the full physics trace.
  */
 import { MAX_SLOT_STEPS, MAX_SLOTS, STEPS_PER_SECOND, UNITS_PER_TILE } from './constants';
+import type { Command } from './commands';
 import { formatCommand, parseCommand } from './commands';
+import { overlaps } from './collision';
 import type { Controller } from './controllers';
-import { startController } from './controllers';
+import { planSwaps, startController } from './controllers';
 import type { Intent } from './physics';
 import { atRest, stepWorld } from './physics';
 import type { Anim, World, WorldEvent } from './world';
@@ -72,6 +74,13 @@ export interface ResolveOptions {
    * "witness actions done in sight").
    */
   slotWorlds?: boolean;
+  /**
+   * The order bots act in: within each slot their commands start in this order, and in each step the one
+   * first in it wins whatever two bots reach at once (a coin, a place in the exit, a gap, a lever, a shove
+   * before the other's command starts). Missing: the world's own order, which is by letter. The game passes
+   * its turn order here (game/order.ts); the bots are never told what it is.
+   */
+  order?: readonly string[];
 }
 
 export interface ResolveOutput {
@@ -132,6 +141,19 @@ class TraceRecorder {
   }
 }
 
+/** Two bots in one place (only a swap cut short does this): the upper one is set on the other's head. */
+function separateOverlaps(world: World): void {
+  const bots = world.bots.filter((b) => !b.exited);
+  for (const a of bots) {
+    for (const b of bots) {
+      if (a.id >= b.id || !overlaps(a, b)) continue;
+      const [top, under] = a.y >= b.y ? [a, b] : [b, a];
+      top.y = under.y + under.h;
+      top.vy = 0;
+    }
+  }
+}
+
 /**
  * Play every bot's queue for one round. `queues` maps bot id to up to six
  * command strings. The input world is not changed; the output has a new one.
@@ -142,6 +164,15 @@ export function resolvePhase(
   options: ResolveOptions = {},
 ): ResolveOutput {
   const world = cloneWorld(input);
+  // Every loop in the engine goes through world.bots in order, so sorting this copy is what makes the
+  // turn order hold everywhere at once (a stable sort: bots the order doesn't name keep their places, last).
+  if (options.order) {
+    const rank = (id: string) => {
+      const i = options.order?.indexOf(id) ?? -1;
+      return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    world.bots.sort((a, b) => rank(a.id) - rank(b.id));
+  }
   const recorder = options.trace === false ? null : new TraceRecorder(world);
   const maxSteps = options.maxSlotSteps ?? MAX_SLOT_STEPS;
   const results: CommandResult[] = [];
@@ -156,6 +187,15 @@ export function resolvePhase(
     // target its NEXT slot, whichever bot happens to be handled first: all of a slot's commands start together.
     const trippedNow = new Set(world.bots.filter((b) => b.tripped).map((b) => b.id));
     const usedTrip = new Set<string>();
+    // Swaps need both bots' commands for this slot, so they are paired before anything starts.
+    const runnable = new Map<string, Command>();
+    for (const bot of world.bots) {
+      const text = queues[bot.id]?.[slot - 1];
+      if (text === undefined || bot.exited || stopped.has(bot.id) || trippedNow.has(bot.id)) continue;
+      const parsed = parseCommand(text);
+      if (parsed.ok) runnable.set(bot.id, parsed.command);
+    }
+    const swaps = planSwaps(world, runnable);
     for (const bot of world.bots) {
       const text = queues[bot.id]?.[slot - 1];
       if (text === undefined) continue;
@@ -181,10 +221,19 @@ export function resolvePhase(
         stopped.add(bot.id);
         continue;
       }
+      // Shoved by a bot the engine handled first in this slot: this command never gets going, for that reason
+      // (handled the other way round, the step loop below ends it the same way).
+      if (bot.interrupt) {
+        results.push({ ...base, parsed: formatCommand(parsed.command), status: 'failed', reason: bot.interrupt });
+        stopped.add(bot.id);
+        bot.interrupt = null;
+        continue;
+      }
       // A toggle lever flips the moment it is pulled, inside startController, so the step
       // loop below never sees it change: record the flip here, at this slot's first step.
       const leversBefore = parsed.command.kind === 'pull_lever' ? { ...world.levers } : null;
-      const c = startController(world, bot, parsed.command);
+      const swap = swaps.get(bot.id);
+      const c = startController(world, bot, parsed.command, swap ? { swap } : undefined);
       if (leversBefore) {
         for (const [id, on] of Object.entries(world.levers)) {
           if (leversBefore[id] !== on) events.push({ step: world.step + 1, type: 'lever', lever: id, on, by: bot.id });
@@ -204,6 +253,16 @@ export function resolvePhase(
     const slotStart = world.step;
     let steps = 0;
     for (;;) {
+      // Something done to a bot mid-command (a shove) ends that command, with the reason it is told. All of a
+      // slot's commands have started by now, so this is the same whichever bot the engine handled first.
+      for (const { c } of running) {
+        const b = world.bots.find((x) => x.id === c.botId);
+        if (b?.interrupt && (c.status === 'running' || c.status === 'holding')) {
+          c.status = 'failed';
+          c.reason = b.interrupt;
+        }
+      }
+      for (const b of world.bots) b.interrupt = null;
       const intents = new Map<string, Intent>();
       for (const { c } of running) {
         if (c.status === 'running' || c.status === 'holding') intents.set(c.botId, c.intent(world));
@@ -217,6 +276,10 @@ export function resolvePhase(
       if (settled || steps >= maxSteps) break;
     }
     recorder?.slot(slot, slotStart, world.step);
+    // Passing through ends with the slot. A swap cut short (something blocked the walker) can leave the two
+    // in one place: the upper one is then standing on the other's head, which the physics can carry on from.
+    for (const b of world.bots) b.passThrough = null;
+    separateOverlaps(world);
 
     for (const { c, text, from, startStep } of running) {
       const bot = world.bots.find((b) => b.id === c.botId);
@@ -241,6 +304,8 @@ export function resolvePhase(
     if (options.slotWorlds) slotWorlds.push(cloneWorld(world));
   }
 
+  // Being pushed past slows a bot for the rest of the round, and no longer.
+  for (const b of world.bots) b.slowed = false;
   results.sort((a, b) => a.slot - b.slot || (a.bot < b.bot ? -1 : a.bot > b.bot ? 1 : 0));
   return { world, results, events, trace: recorder ? recorder.finish(world) : null, slotWorlds };
 }

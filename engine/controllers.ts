@@ -17,10 +17,12 @@
 import { BLOCKED_STEPS, MILLI, PHYS, UNITS_PER_TILE as T } from './constants';
 import type { Command } from './commands';
 import { coinBox, doorBox, exitBox, isFree, leverReachBox, overlaps, plateSpan, surfaceIntervals, sweepX } from './collision';
-import { TILE, tileAt } from './level';
+import { laddersOf, TILE, tileAt } from './level';
 import type { Intent, PushOutcome, StepReport } from './physics';
 import { jumpVelocityFor } from './stats';
-import type { Bot, World, WorldEvent } from './world';
+import { rollDice } from './dice';
+import { canSeeBody } from './sight';
+import type { Bot, SocialAction, World, WorldEvent } from './world';
 import { botById, describeContact, footingText, tiles, weightText, where } from './world';
 
 /** How high a boost throws the bot on your head, for a bot of standard strength. */
@@ -35,15 +37,47 @@ function beside(bot: Bot, other: Bot): boolean {
 
 const coinsText = (n: number) => `${n} coin${n === 1 ? '' : 's'}`;
 
-/** trip, steal, give and boost: one bot acting on another (spec 7.4). Settled the moment it starts. */
-function socialController(world: World, bot: Bot, command: Extract<Command, { kind: 'trip' | 'steal' | 'give' | 'boost' }>): Controller {
+/** How far a shove of standard strength sends a bot of standard weight, and how high it lifts it. */
+const SHOVE_TILES = 1.25;
+const SHOVE_LIFT_TILES = 0.35;
+
+/**
+ * An attack's dice (Ingram, 2026-11-20). It works with chance (1000 - the
+ * target's alertness) in 1000: everyone starts unalert, so the first attack of
+ * a game always works. Whatever the dice say, everyone who sees the attempt
+ * (the two bots included) goes fully on guard, and attacks on them can't
+ * succeed until the game lowers their guard again, round by round.
+ */
+function attack(world: World, bot: Bot, other: Bot): { hit: boolean; chance: number } {
+  const chance = Math.max(0, Math.min(1000, 1000 - other.alert));
+  const hit = chance >= 1000 ? true : chance <= 0 ? false : rollDice(world) < chance;
+  for (const w of world.bots) {
+    if (w.exited) continue;
+    if (w === bot || w === other || canSeeBody(world, w, bot) || canSeeBody(world, w, other)) {
+      w.alert = 1000;
+      w.sawAttack = true;
+    }
+  }
+  return { hit, chance };
+}
+
+/** trip, steal, push_past, shove (attacks, on dice), give and boost: one bot acting on another (spec 7.4). */
+function socialController(world: World, bot: Bot, command: Extract<Command, { kind: 'trip' | 'steal' | 'give' | 'boost' | 'push_past' | 'shove' }>): Controller {
   const id = bot.id;
   const no = (reason: string) => new Instant(id, command, 'failed', reason, null);
   const other = world.bots.find((b) => b.id === command.target);
-  if (other === bot) return no(`you can't ${command.kind} yourself`);
+  if (other === bot) return no(`you can't ${command.kind.replace('_', ' ')} yourself`);
   if (!other || other.exited) return no(`there's no bot ${command.target} in the room`);
-  const event = (action: 'trip' | 'steal' | 'give' | 'boost', coins: number): WorldEvent => ({ step: 0, type: 'social', action, by: id, target: other.id, coins });
-  let done: Instant;
+  const event = (action: SocialAction, coins: number, roll?: { hit: boolean; chance: number }): WorldEvent => ({
+    step: 0,
+    type: 'social',
+    action,
+    by: id,
+    target: other.id,
+    coins,
+    ...(roll ? { success: roll.hit, chance: roll.chance } : {}),
+  });
+  let done: Controller;
   switch (command.kind) {
     case 'boost': {
       if (!(other.grounded && other.support?.kind === 'bot' && other.support.id === id)) return no(`${other.id} is not standing on your head`);
@@ -56,22 +90,6 @@ function socialController(world: World, bot: Bot, command: Extract<Command, { ki
       done.events.push(event('boost', 0));
       return done;
     }
-    case 'trip':
-      if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
-      if (bot.purse < 1) return no('tripping costs 1 coin, and you have none');
-      bot.purse -= 1;
-      other.tripped = true;
-      done = new Instant(id, command, 'done', null, `tripped ${other.id}, which loses its next slot; it cost you 1 coin`);
-      done.events.push(event('trip', 1));
-      return done;
-    case 'steal':
-      if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
-      if (other.purse < 1) return no(`${other.id} has no coins`);
-      other.purse -= 1;
-      bot.purse += 1;
-      done = new Instant(id, command, 'done', null, `took 1 coin from ${other.id}`);
-      done.events.push(event('steal', 1));
-      return done;
     case 'give':
       if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
       if (bot.purse < command.coins) return no(`you have only ${coinsText(bot.purse)}`);
@@ -80,6 +98,79 @@ function socialController(world: World, bot: Bot, command: Extract<Command, { ki
       done = new Instant(id, command, 'done', null, `gave ${other.id} ${coinsText(command.coins)}`);
       done.events.push(event('give', command.coins));
       return done;
+    case 'trip': {
+      if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
+      const roll = attack(world, bot, other);
+      if (!roll.hit) {
+        done = no(`${other.id} saw it coming and stepped clear`);
+      } else {
+        other.tripped = true;
+        done = new Instant(id, command, 'done', null, `tripped ${other.id}, which loses its next slot`);
+      }
+      done.events.push(event('trip', 0, roll));
+      return done;
+    }
+    case 'steal': {
+      if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
+      if (other.purse < 1) return no(`${other.id} has no coins`);
+      const roll = attack(world, bot, other);
+      if (!roll.hit) {
+        done = no(`${other.id} was on guard and kept hold of its coins`);
+      } else {
+        other.purse -= 1;
+        bot.purse += 1;
+        done = new Instant(id, command, 'done', null, `took 1 coin from ${other.id}`);
+      }
+      done.events.push(event('steal', roll.hit ? 1 : 0, roll));
+      return done;
+    }
+    case 'push_past': {
+      if (!beside(bot, other) || Math.abs(other.y - bot.y) > T / 4) return no(`${other.id} is not right beside you on your floor`);
+      if (!bot.grounded || bot.onLadder) return no('you have to be standing on the floor to push past');
+      // Where you end up: just past it. That must be possible before anyone rolls anything.
+      const dir = other.x > bot.x ? 1 : -1;
+      const to = dir > 0 ? other.x + other.w + Math.round(T / 10) : other.x - bot.w - Math.round(T / 10);
+      const others = { ...world, bots: world.bots.filter((b) => b !== other) };
+      if (!isFree(others, { x: to, y: bot.y, w: bot.w, h: bot.h }, bot) || !surfaceIntervals(others, bot.y, bot).some(([a, b]) => a <= to + bot.w / 2 && b >= to + bot.w / 2)) {
+        return no(`no room past ${other.id} to push through to`);
+      }
+      const roll = attack(world, bot, other);
+      if (!roll.hit) {
+        done = no(`${other.id} saw it coming and held its ground`);
+        done.events.push(event('push_past', 0, roll));
+        return done;
+      }
+      other.slowed = true;
+      bot.passThrough = other.id;
+      const p = bot.phys;
+      done = new Mover(world, bot, command, to, { speed: p.runSpeed, accel: null, look: 'push', push: false }, { status: 'done', note: `pushed past ${other.id}, which is slowed for the rest of the round` });
+      done.events.push(event('push_past', 0, roll));
+      return done;
+    }
+    case 'shove': {
+      if (!beside(bot, other) || Math.abs(other.y - bot.y) > T / 2) return no(`${other.id} is not right beside you`);
+      const roll = attack(world, bot, other);
+      if (!roll.hit) {
+        done = no(`${other.id} saw it coming and braced itself`);
+        done.events.push(event('shove', 0, roll));
+        return done;
+      }
+      // Stronger shovers send lighter bots further (both hidden: the result says where it went, not why).
+      const dir = other.x > bot.x ? 1 : -1;
+      const tiles = Math.min(2.5, Math.max(0.5, (SHOVE_TILES * bot.phys.strength) / Math.max(1, other.phys.weight)));
+      const vy = jumpVelocityFor(Math.round(SHOVE_LIFT_TILES * T), PHYS.gravity);
+      const airSteps = Math.max(1, Math.round((2 * vy) / PHYS.gravity));
+      other.vx = Math.round((dir * tiles * T) / airSteps);
+      other.vy = vy;
+      other.grounded = false;
+      other.support = null;
+      other.airSteps = PHYS.coyoteSteps + 1;
+      other.holding = null; // a shove breaks any grip on a lever
+      other.interrupt = 'you were shoved';
+      done = new Instant(id, command, 'done', null, `shoved ${other.id} away`);
+      done.events.push(event('shove', 0, roll));
+      return done;
+    }
   }
 }
 
@@ -252,6 +343,7 @@ class Jumper extends Base {
     this.phase = command.runUp > 0 ? 'runup' : 'takeoff';
     if (bot.onLadder) this.fail('you are on a ladder: climb up or down first');
     else if (!bot.grounded) this.fail('you are in the air');
+    else if (bot.crouched) this.fail("you're crouching: stand up first");
     void world;
   }
 
@@ -301,6 +393,99 @@ class Jumper extends Base {
   }
 }
 
+/** How far past a bot a hop lands, and how far above its head the hopper's feet must be to cross. */
+const HOP_GAP = Math.round(T / 10);
+const HOP_CLEARANCE = Math.round(T / 10);
+
+/** A hop's speeds: up and down 0.18 tiles a step at most, across 0.12 (about half a second in all). */
+const HOP_RISE = Math.round(0.18 * T);
+const HOP_CROSS = Math.round(0.12 * T);
+const ease = (t: number) => t * t * (3 - 2 * t);
+
+/**
+ * hop_over(B), and the hopping half of a swap: a controlled jump over the bot
+ * beside you (Ingram, 2026-11-20: "jumping over each other with controlled
+ * jumps"). The game flies it, step by step: up until the feet clear the other
+ * bot's head, across, and down onto the exact spot. A real jump steered in the
+ * air couldn't make that crossing from a standstill (it was tried: it came down
+ * on the other bot's head), and a swap needs the exact spot. Being the game's
+ * own move, it reveals nothing of the hopper's hidden jump.
+ *
+ * Every step still goes through the physics, so walls and bodies stop it; if
+ * something gets in the way, the hop fails there and the bot falls from where
+ * it was.
+ */
+class Hopper extends Base {
+  private readonly path: { x: number; y: number }[] = [];
+  private i = 0;
+
+  constructor(
+    world: World,
+    bot: Bot,
+    command: Command,
+    private readonly over: string,
+    clearY: number,
+    landX: number,
+    private readonly doneNote: string,
+  ) {
+    super(bot.id, command);
+    const x0 = bot.x;
+    const y0 = bot.y;
+    const up = Math.max(4, Math.ceil((clearY - y0) / HOP_RISE));
+    const across = Math.max(4, Math.ceil(Math.abs(landX - x0) / HOP_CROSS));
+    for (let k = 1; k <= up; k++) this.path.push({ x: x0, y: Math.round(y0 + (clearY - y0) * ease(k / up)) });
+    for (let k = 1; k <= across; k++) this.path.push({ x: Math.round(x0 + (landX - x0) * ease(k / across)), y: clearY });
+    for (let k = 1; k <= up; k++) this.path.push({ x: landX, y: Math.round(clearY - (clearY - y0) * ease(k / up)) });
+    void world;
+  }
+
+  override intent(_world: World): Intent {
+    const next = this.path[this.i];
+    return next ? { glide: next } : {};
+  }
+
+  override after(world: World, _report: StepReport): void {
+    const bot = this.bot(world);
+    const wanted = this.path[this.i];
+    if (!wanted) return;
+    if (bot.x !== wanted.x || bot.y !== wanted.y) {
+      // Something solid was in the way: the game lets go, and the bot falls from here.
+      this.fail(`the hop over ${this.over} was stopped at ${where(bot)}: something was in the way`);
+      return;
+    }
+    this.i++;
+    if (this.i >= this.path.length) this.finish(`${this.doneNote}: landed on ${footingText(bot)} at ${where(bot)}`);
+  }
+}
+
+/**
+ * Can `bot` hop over `other`? The landing spot just past it must be free and
+ * have floor under it, and there must be room above both of them. Returns the
+ * hop's numbers, or the reason it can't be done (said plainly: these are facts
+ * of the room, not of anyone's body).
+ */
+export function planHop(world: World, bot: Bot, other: Bot, ignore: Bot | null = null, landAt: number | null = null): { clearY: number; landX: number } | { error: string } {
+  if (bot.onLadder) return { error: 'you are on a ladder: climb up or down first' };
+  if (!bot.grounded) return { error: 'you are in the air' };
+  if (bot.crouched) return { error: "you're crouching: stand up first" };
+  if (!beside(bot, other) || Math.abs(other.y - bot.y) > T / 4) return { error: `${other.id} isn't right beside you on your floor` };
+  const dir = other.x > bot.x ? 1 : -1;
+  const landX = landAt ?? (dir > 0 ? other.x + other.w + HOP_GAP : other.x - bot.w - HOP_GAP);
+  const clearY = other.y + other.h + HOP_CLEARANCE;
+  // Room to land: free of walls and bodies (a swap partner walking away doesn't count), with floor under it.
+  const without = ignore ? { ...world, bots: world.bots.filter((b) => b !== ignore) } : world;
+  if (!isFree(without, { x: landX, y: bot.y, w: bot.w, h: bot.h }, bot)) return { error: `no room to land past ${other.id}` };
+  const floor = surfaceIntervals(without, bot.y, bot).some(([a, b]) => a <= landX + bot.w / 2 && b >= landX + bot.w / 2);
+  if (!floor) return { error: `there's no floor to land on just past ${other.id}` };
+  // Room above: the hopper rises in its own column, then crosses above the other's head.
+  const lo = Math.min(bot.x, landX);
+  const hi = Math.max(bot.x, landX) + bot.w;
+  if (!isFree(without, { x: lo, y: clearY, w: hi - lo, h: bot.h }, bot) || !isFree(without, { x: bot.x, y: bot.y + bot.h, w: bot.w, h: clearY - bot.y }, bot)) {
+    return { error: `not enough room above ${other.id} to hop over it` };
+  }
+  return { clearY, landX };
+}
+
 /** climb(up|down): ride the ladder to its top or bottom. */
 class Climber extends Base {
   private readonly up: boolean;
@@ -311,6 +496,10 @@ class Climber extends Base {
   constructor(world: World, bot: Bot, command: Extract<Command, { kind: 'climb' }>) {
     super(bot.id, command);
     this.up = command.dir === 'up';
+    if (bot.crouched) {
+      this.fail("you're crouching: stand up first");
+      return;
+    }
     const level = world.level;
     const col = Math.floor((bot.x + bot.w / 2) / T);
     const isLadder = (row: number) => tileAt(level, col, row) === TILE.LADDER;
@@ -426,6 +615,9 @@ function approachPoint(world: World, bot: Bot, id: string): { x: number } | { er
   if (exit) return besideOrOn(exitBox(exit), false);
   const coin = level.coins.find((c) => c.id === id && world.coins.includes(c.id));
   if (coin) return besideOrOn(coinBox(coin), false);
+  // A ladder: stand in its column, ready to climb.
+  const ladder = laddersOf(level).find((l) => l.id === id);
+  if (ladder) return besideOrOn({ x: ladder.tx * T, w: T }, false);
   return { error: `there's nothing called "${id}" here` };
 }
 
@@ -467,11 +659,68 @@ function edgeStop(world: World, bot: Bot, dir: 1 | -1): { x: number; edge: boole
 }
 
 /** Start the controller for a command. It may fail at once, with a reason, if the command is impossible here. */
-export function startController(world: World, bot: Bot, command: Command): Controller {
+/**
+ * Pair this slot's swaps. Two bots swap when each commands swap(the other) in
+ * the same slot, side by side on one floor: that's the consent (Ingram,
+ * 2026-11-20: "positional swapping if both agree"). One hops over, the first
+ * in alphabetical order that isn't crouching, landing where the other stood;
+ * the other walks under into its place. They pass through each other for the
+ * slot, and nobody else does. A swap command without its match is left out,
+ * and its controller says why.
+ */
+export function planSwaps(world: World, commands: ReadonlyMap<string, Command>): Map<string, SwapRole> {
+  const roles = new Map<string, SwapRole>();
+  for (const [id, cmd] of commands) {
+    if (cmd.kind !== 'swap' || roles.has(id)) continue;
+    const match = commands.get(cmd.target);
+    if (!match || match.kind !== 'swap' || match.target !== id) continue;
+    const a = botById(world, id);
+    const b = world.bots.find((x) => x.id === cmd.target);
+    if (!b || b.exited) continue;
+    const both = (error: (me: Bot, them: Bot) => string) => {
+      roles.set(a.id, { error: error(a, b) });
+      roles.set(b.id, { error: error(b, a) });
+    };
+    if (!beside(a, b) || Math.abs(a.y - b.y) > T / 4) {
+      both((_me, them) => `${them.id} isn't right beside you on your floor`);
+      continue;
+    }
+    if (a.onLadder || b.onLadder || !a.grounded || !b.grounded) {
+      both(() => 'you both have to be standing on the floor to swap');
+      continue;
+    }
+    if (a.crouched && b.crouched) {
+      both(() => 'you are both crouching: one of you has to stand, to hop over the other');
+      continue;
+    }
+    const [first, second] = a.id < b.id ? [a, b] : [b, a];
+    const [hopper, walker] = first.crouched ? [second, first] : [first, second];
+    const hop = planHop(world, hopper, walker, walker, walker.x);
+    if ('error' in hop) {
+      both(() => `you couldn't swap: ${hop.error.replace(/^you're|^you are/, `${hopper.id} is`)}`);
+      continue;
+    }
+    roles.set(hopper.id, { partner: walker.id, hop });
+    roles.set(walker.id, { partner: hopper.id, walkTo: hopper.x });
+  }
+  return roles;
+}
+
+/** A swap's half for one bot, worked out by resolve.ts when the slot starts (both bots must command it). */
+export type SwapRole = { partner: string; hop?: { clearY: number; landX: number }; walkTo?: number } | { error: string };
+
+/** What a controller may need to know about the rest of its slot. */
+export interface SlotContext {
+  swap?: SwapRole;
+}
+
+export function startController(world: World, bot: Bot, command: Command, context?: SlotContext): Controller {
   // Doing anything but waiting (or standing your ground) lets go of a held lever.
   if (bot.holding && command.kind !== 'wait' && command.kind !== 'block' && command.kind !== 'hold_lever') bot.holding = null;
   const p = bot.phys;
-  const walk: Gait = { speed: p.runSpeed, accel: p.groundAccel, look: 'walk', push: false };
+  // A crouched bot gets about at creep speed, whatever it was asked to do.
+  const slow = bot.slowed ? 0.5 : 1; // pushed past this round
+  const walk: Gait = bot.crouched ? { speed: Math.round(p.creepSpeed * slow), accel: null, look: 'creep', push: false } : { speed: Math.round(p.runSpeed * slow), accel: p.groundAccel, look: 'walk', push: false };
   const id = bot.id;
 
   switch (command.kind) {
@@ -563,8 +812,44 @@ export function startController(world: World, bot: Bot, command: Command): Contr
     case 'steal':
     case 'give':
     case 'boost':
+    case 'push_past':
+    case 'shove':
       return socialController(world, bot, command);
     case 'block':
       return new Instant(id, command, 'done', null, bot.holding ? `stood its ground, still holding ${bot.holding}` : 'stood its ground');
+    case 'hop_over': {
+      const other = world.bots.find((b) => b.id === command.target && !b.exited);
+      if (!other || other === bot) return new Instant(id, command, 'failed', other === bot ? "you can't hop over yourself" : `there's no bot ${command.target} here`, null);
+      const plan = planHop(world, bot, other);
+      if ('error' in plan) return new Instant(id, command, 'failed', plan.error, null);
+      return new Hopper(world, bot, command, other.id, plan.clearY, plan.landX, `hopped over ${other.id}`);
+    }
+    case 'swap': {
+      // Settled before the slot starts (resolve.ts pairs the swaps): here only the half this bot plays.
+      const role = context?.swap;
+      if (!role) return new Instant(id, command, 'failed', `${command.target} didn't command swap(${id}) in this slot`, null);
+      if ('error' in role) return new Instant(id, command, 'failed', role.error, null);
+      const partner = botById(world, role.partner);
+      bot.passThrough = partner.id;
+      if (role.hop) return new Hopper(world, bot, command, partner.id, role.hop.clearY, role.hop.landX, `swapped places with ${partner.id}`);
+      return new Mover(world, bot, command, role.walkTo ?? bot.x, walk, { status: 'done', note: `swapped places with ${partner.id}` });
+    }
+    case 'crouch': {
+      if (bot.onLadder) return new Instant(id, command, 'failed', 'you are on a ladder: climb up or down first', null);
+      if (!bot.grounded) return new Instant(id, command, 'failed', 'you are in the air', null);
+      if (bot.crouched) return new Instant(id, command, 'done', null, 'already crouching');
+      bot.crouched = true;
+      bot.h = Math.round(PHYS.botHeight / 2);
+      return new Instant(id, command, 'done', null, `crouched: your top is at y=${tiles(bot.y + bot.h)}`);
+    }
+    case 'stand': {
+      if (!bot.crouched) return new Instant(id, command, 'done', null, 'already standing');
+      if (!isFree(world, { x: bot.x, y: bot.y, w: bot.w, h: PHYS.botHeight }, bot)) {
+        return new Instant(id, command, 'failed', `no room to stand up here: something is above you, below y=${tiles(bot.y + PHYS.botHeight)}`, null);
+      }
+      bot.crouched = false;
+      bot.h = PHYS.botHeight;
+      return new Instant(id, command, 'done', null, 'stood up');
+    }
   }
 }

@@ -19,6 +19,7 @@ import type { CommandResult, ResolveOutput } from '../engine/resolve';
 import type { Point } from '../engine/sight';
 import { canSeeBody, canSeePoint } from '../engine/sight';
 import type { World, WorldEvent } from '../engine/world';
+import { ATTACKS } from '../engine/world';
 import { tiles } from '../engine/world';
 
 export interface Witnessed {
@@ -71,17 +72,33 @@ export function describeAction(r: CommandResult): string | null {
     case 'trip':
     case 'steal':
     case 'give':
-    case 'boost': {
-      if (r.status !== 'done') return null;
+    case 'boost':
+    case 'push_past':
+    case 'shove': {
+      // A missed attack is seen too: whoever saw it saw who tried.
+      if (r.status !== 'done' && !/saw it coming|on guard/.test(r.reason ?? '')) return null;
       const target = /\(\s*([A-Za-z])/.exec(r.parsed ?? r.command)?.[1]?.toUpperCase() ?? '?';
       const coins = /give\([^,]+,\s*(\d+)/.exec(r.parsed ?? '')?.[1];
+      if (r.status !== 'done') return `${r.bot} tried to ${kind.replace('_', ' ')} ${target}, and ${target} was ready for it`;
       if (kind === 'trip') return `${r.bot} tripped ${target}`;
+      if (kind === 'push_past') return `${r.bot} pushed past ${target}, ${path}`;
+      if (kind === 'shove') return `${r.bot} shoved ${target}`;
       if (kind === 'steal') return `${r.bot} took a coin from ${target}`;
       if (kind === 'give') return `${r.bot} gave ${target} ${coins ?? 'some'} coin${coins === '1' ? '' : 's'}`;
       return `${r.bot} launched ${target} into the air`;
     }
     case 'block':
       return r.status === 'done' ? `${r.bot} stood its ground` : null;
+    case 'hop_over':
+    case 'swap': {
+      const target = /\(\s*([A-Za-z])/.exec(r.parsed ?? r.command)?.[1]?.toUpperCase() ?? '?';
+      if (r.status === 'done') return kind === 'swap' ? `${r.bot} swapped places with ${target}, ${path}` : `${r.bot} hopped over ${target}, ${path}`;
+      return moved ? `${r.bot} moved ${path}` : null;
+    }
+    case 'crouch':
+      return r.status === 'done' && !/already/.test(r.note ?? '') ? `${r.bot} crouched down` : null;
+    case 'stand':
+      return r.status === 'done' && r.note === 'stood up' ? `${r.bot} stood up` : null;
     default:
       return null; // waiting, the exit (announced to everyone), unreadable commands: nothing to see
   }
@@ -162,7 +179,7 @@ export function witness(before: World, out: ResolveOutput, everyone: readonly st
     if (e.type === 'social') {
       // Harm is announced to everyone, without the culprit (spec 7.4: "someone tripped D"). Gifts and boosts
       // need no announcement: whoever saw them happen has the action in its own "seen" events.
-      if (e.action === 'trip' || e.action === 'steal') result.world.push({ slot, event: { ...e, by: '?' }, visibleTo: [...everyone] });
+      if (ATTACKS.has(e.action)) result.world.push({ slot, event: { ...e, by: '?' }, visibleTo: [...everyone] });
       continue;
     } else if (e.type === 'exit') {
       visibleTo = [...everyone];

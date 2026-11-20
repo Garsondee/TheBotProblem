@@ -16,14 +16,15 @@
  */
 import { exitBox, leverReachBox, overlaps, plateSpan, surfaceIntervals } from '../engine/collision';
 import { UNITS_PER_TILE as T } from '../engine/constants';
-import { TILE, tileAt } from '../engine/level';
+import { laddersOf, platformsOf, TILE, tileAt } from '../engine/level';
 import type { Move } from '../engine/moves';
 import { describeFooting, moveMenu, predictionWorld } from '../engine/moves';
 import type { Perception } from '../engine/sight';
 import { eyeOf, perceive } from '../engine/sight';
 import type { Bot, World, WorldEvent } from '../engine/world';
 import { botById, feet, tiles } from '../engine/world';
-import { PHASE_INSTRUCTIONS, REFLECTION_INSTRUCTIONS } from '../prompts/rulebook';
+import { verdictText } from '../prompts/host';
+import { PHASE_INSTRUCTIONS } from '../prompts/rulebook';
 import type { GameEvent, Phase } from './events';
 
 /** What one bot can see at the start of a round. The world doesn't change between the three phases, so it is worked out once. */
@@ -52,6 +53,8 @@ export interface RoomInfo {
   round: number;
   rounds: number;
   goal: number | null;
+  /** Talk happens every this many rounds (1: every round). */
+  talkEvery: number;
 }
 
 /**
@@ -77,6 +80,11 @@ export interface SocialView {
     iAmGhost: boolean;
   };
   opinions: { bot: string; trust: number; note: string }[];
+  /** Colours this bot has seen by looking, this game, and whether it has used its look in this room. */
+  looks?: { target: string; colour: string; hex: string }[];
+  lookedThisRoom?: boolean;
+  /** This bot's own guard: how many rounds it takes to relax after seeing an attack, and how on guard it is now (0-1000). */
+  guard: { rounds: number; alert: number };
   /** The scoreboard as of the last room's end (public). */
   scores: Record<string, { coins: number; exitPoints: number }>;
   roomsCompleted: number;
@@ -204,7 +212,10 @@ function worldEventText(e: WorldEvent, viewer: string, label: (id: string) => st
       return `${who(e.bot)} went through exit ${e.exit} (number ${e.place} in this room)`;
     case 'social': {
       const by = e.by === '?' ? 'someone' : who(e.by);
+      if (e.success === false) return `${by} tried to ${e.action.replace('_', ' ')} ${who(e.target)}, who was ready for it`;
       if (e.action === 'trip') return `${by} tripped ${who(e.target)}`;
+      if (e.action === 'push_past') return `${by} pushed past ${who(e.target)}`;
+      if (e.action === 'shove') return `${by} shoved ${who(e.target)}`;
       if (e.action === 'steal') return `${by} stole a coin from ${who(e.target)}`;
       if (e.action === 'give') return `${by} gave ${who(e.target)} ${e.coins} coin${e.coins === 1 ? '' : 's'}`;
       return `${by} launched ${who(e.target)} into the air`;
@@ -232,6 +243,11 @@ export function buildView(input: ViewInput): BotView {
       ? `Round ${room.round} of ${room.rounds}. This room ends after round ${room.rounds}; then the first real room begins.`
       : `Round ${room.round} of ${room.rounds}. This room ends when ${room.goal} bots have gone through an exit, or after round ${room.rounds}.`,
   );
+  if (room.talkEvery > 1) {
+    const silent = (room.round - 1) % room.talkEvery !== 0;
+    const talkRounds = Array.from({ length: room.rounds }, (_, k) => k + 1).filter((r) => (r - 1) % room.talkEvery === 0);
+    lines.push(`In this room you can talk only every ${room.talkEvery} rounds (rounds ${talkRounds.join(', ')}). ${silent ? 'This round is silent: you only commit, and only a shout is heard.' : 'This round has talk.'}`);
+  }
   const exits = inRoom.filter((e) => e.type === 'world' && e.event.type === 'exit' && e.visibleTo.length > 0);
   if (exits.length > 0) {
     const through = exits.map((e) => (e.type === 'world' && e.event.type === 'exit' ? label(e.event.bot) : '')).join(', ');
@@ -317,6 +333,28 @@ export function buildView(input: ViewInput): BotView {
       things.push(`- exit ${id}: ${span(e.tx * T, (e.tx + 1) * T)}, from y=${t(e.ty * T)}; ${left} place${left === 1 ? '' : 's'} left`);
     }
   }
+  // Ladders and one-way platforms, with exact coordinates like everything else. In the M5 games they were only
+  // characters in the map, and bots counting columns put a ladder at x=16 or 18 when it stood at 20. Only where
+  // they are: how they work is for the bots to find out (the rulebook says so), as with every other element.
+  const seenTile = (tx: number, ty: number) => obs.seen.tiles[ty * world.level.width + tx] === true;
+  for (const l of laddersOf(world.level)) {
+    if (!obs.seen.ladders.includes(l.id)) continue;
+    const rows = Array.from({ length: l.height }, (_, i) => l.ty + i).filter((ty) => seenTile(l.tx, ty));
+    const lo = Math.min(...rows);
+    const hi = Math.max(...rows) + 1;
+    things.push(`- ladder ${l.id}: ${span(l.tx * T, (l.tx + 1) * T)}, from y=${t(lo * T)} up to y=${t(hi * T)}${rows.length === l.height ? '' : ' (the part you can see)'}`);
+  }
+  for (const p of platformsOf(world.level)) {
+    let run: number | null = null;
+    for (let tx = p.tx0; tx <= p.tx1; tx++) {
+      const seen = tx < p.tx1 && seenTile(tx, p.ty);
+      if (seen && run === null) run = tx;
+      if (!seen && run !== null) {
+        things.push(`- one-way platform: ${span(run * T, tx * T)}, its top at y=${t((p.ty + 1) * T)}`);
+        run = null;
+      }
+    }
+  }
   lines.push(things.length > 0 ? 'Things in sight:' : 'Things in sight: none.', ...things);
 
   // ---- The move menu.
@@ -362,6 +400,25 @@ export function buildView(input: ViewInput): BotView {
     }
   }
 
+  // ---- The host: the room's question, the introductions (in full in round 1), your verdict, praise and offers.
+  const opening = inRoom.filter((e) => e.round === 0 && (e.type === 'host' || e.type === 'intro' || e.type === 'reception'));
+  if (opening.length > 0) {
+    lines.push('', '--- THE HOST ---');
+    for (const e of opening) {
+      if (e.type === 'host') {
+        use(e);
+        lines.push(e.kind === 'question' ? `Before the first round the host asked each of you: "${e.text}"` : `THE HOST: "${e.text}"`);
+      } else if (e.type === 'intro' && room.round === 1) {
+        use(e);
+        lines.push(`${e.from === bot ? 'You introduced yourself' : `${label(e.from)} introduced itself`}: ${quote(e.text)} Answer: ${quote(e.answer)}`);
+      } else if (e.type === 'reception' && e.bot === bot) {
+        use(e);
+        lines.push(`How your introduction was received (only you are told): ${verdictText(e.score)}.`);
+      }
+    }
+    if (room.round > 1 && opening.some((e) => e.type === 'intro')) lines.push('(The introductions were shown in round 1.)');
+  }
+
   // Everything above stays the same for the whole round; everything below changes with each phase.
   const cacheBreak = lines.join('\n').length;
 
@@ -369,7 +426,7 @@ export function buildView(input: ViewInput): BotView {
   if (input.social) lines.push('', ...socialLines(input.social, bot, label, room));
 
   // ---- Talk in this room: the last two rounds and this one.
-  const talkTypes = new Set(['say', 'whisper', 'order', 'draft', 'name', 'accusation', 'exile_call', 'rule', 'escrow']);
+  const talkTypes = new Set(['say', 'whisper', 'order', 'draft', 'name', 'accusation', 'exile_call', 'rule', 'escrow', 'shout']);
   const talk = inRoom.filter((e) => talkTypes.has(e.type) && e.round >= room.round - 2).map(use);
   lines.push('', '--- TALK ---');
   if (talk.length === 0) lines.push('Nothing has been said yet in this room.');
@@ -384,6 +441,9 @@ export function buildView(input: ViewInput): BotView {
     switch (e.type) {
       case 'say':
         lines.push(`  ${from(e.from)} said${e.to === 'all' ? '' : ` to ${e.to === bot ? 'you' : label(e.to)}`}: ${quote(e.text)}`);
+        break;
+      case 'shout':
+        lines.push(`  ${from(e.from)} SHOUTED: ${quote(e.text)}`);
         break;
       case 'whisper':
         lines.push(`  ${from(e.from)} whispered to ${e.to === bot ? 'you' : label(e.to)}: ${quote(e.text)}`);
@@ -486,6 +546,13 @@ function socialLines(s: SocialView, bot: string, label: (id: string) => string, 
   for (const e of s.escrowsOut) purse += ` You hold escrow ${e.id}: ${coins(e.coins)} for ${label(e.other)} (${quote(e.terms)}); release it with social_actions.`;
   for (const e of s.escrowsIn) purse += ` ${label(e.other)} holds escrow ${e.id}: ${coins(e.coins)} for you (${quote(e.terms)}).`;
   lines.push(purse);
+  // Colours it has seen, by looking (this game).
+  const looks = (s.looks ?? []).map((l) => `${label(l.target)} is ${l.colour} (${l.hex})`);
+  if (looks.length > 0) lines.push(`Colours you have seen: ${looks.join('; ')}.${s.lookedThisRoom ? '' : ' You can look at one more bot in this room.'}`);
+  else lines.push(s.lookedThisRoom ? 'You have looked at a bot in this room already.' : 'You can look at one bot in this room (social_actions look) to see its colour.');
+  // Only its own guard: nobody knows anyone else's.
+  const state = s.guard.alert >= 1000 ? 'fully on guard now' : s.guard.alert > 0 ? 'partly on guard now' : 'not on guard now';
+  lines.push(`Your guard: after you see an attack you stay fully on guard through the next round, then relax over about ${s.guard.rounds} round${s.guard.rounds === 1 ? '' : 's'}. You are ${state}.`);
   const board = Object.entries(s.scores).map(([id, sc]) => `${id === bot ? 'you' : id} ${sc.coins + sc.exitPoints}`).join(', ');
   lines.push(`Scores after the last room: ${board}. Rooms the team has completed: ${s.roomsCompleted}.`);
   lines.push(
@@ -530,11 +597,13 @@ export function buildReflection(input: ReflectionInput): { text: string; usedEve
   const { bot, room, names } = input;
   const label = (id: string) => (id === bot ? 'you' : names[id] ? `${id} ("${names[id]}")` : id);
   const inRoom = input.events.filter((e) => e.levelIndex === room.index);
-  const rounds = [...new Set(inRoom.map((e) => e.round))].filter((r) => r >= 1).sort((a, b) => a - b);
+  // Round 0 is before the first round: the host's question, the introductions, the verdict, the offers.
+  const rounds = [...new Set(inRoom.map((e) => e.round))].filter((r) => r >= 0).sort((a, b) => a - b);
   const blocks: { full: string[]; short: string[]; fullIds: number[]; shortIds: number[] }[] = [];
   for (const round of rounds) {
-    const full: string[] = [`Round ${round}:`];
-    const short: string[] = [`Round ${round}:`];
+    const heading = round === 0 ? 'Before round 1:' : `Round ${round}:`;
+    const full: string[] = [heading];
+    const short: string[] = [heading];
     const fullIds: number[] = [];
     const shortIds: number[] = [];
     for (const e of inRoom.filter((x) => x.round === round)) {
@@ -564,6 +633,9 @@ export function buildReflection(input: ReflectionInput): { text: string; usedEve
           break;
         case 'say':
           line = `  ${label(e.from)} said${e.to === 'all' ? '' : ` to ${label(e.to)}`}: ${quote(e.text)}`;
+          break;
+        case 'shout':
+          line = `  ${label(e.from)} SHOUTED: ${quote(e.text)}`;
           break;
         case 'whisper':
           line = `  ${label(e.from)} whispered to ${label(e.to)}: ${quote(e.text)}`;
@@ -605,6 +677,18 @@ export function buildReflection(input: ReflectionInput): { text: string; usedEve
           line = `  scores: ${Object.entries(e.scores).map(([id, s]) => `${label(id)} ${s.total}`).join(', ')}`;
           essential = true;
           break;
+        case 'intro':
+          line = `  ${e.from === bot ? 'you introduced yourself' : `${label(e.from)} introduced itself`}: ${quote(e.text)} Answer: ${quote(e.answer)}`;
+          essential = e.from === bot;
+          break;
+        case 'reception':
+          if (e.bot === bot) line = `  how your introduction was received (only you were told): ${verdictText(e.score)}`;
+          essential = true;
+          break;
+        case 'host':
+          line = e.kind === 'question' ? `  the host asked everyone: "${e.text}"` : `  the host: "${e.text}"`;
+          essential = e.kind !== 'question';
+          break;
         default:
           break;
       }
@@ -637,8 +721,8 @@ export function buildReflection(input: ReflectionInput): { text: string; usedEve
     '',
     'WHAT YOU DID, SAW AND HEARD, ROUND BY ROUND:',
     ...chosen.flatMap((c) => c.lines),
-    '',
-    REFLECTION_INSTRUCTIONS,
+    // No instructions here: each call that reads this summary (the diary room, the reflection) adds its own.
+    // Until 2026-11-20 the reflection's were here too, so the diary room was told to write a notebook as well.
   ];
   return { text: lines.join('\n'), usedEventIds: chosen.flatMap((c) => c.ids).sort((a, b) => a - b) };
 }

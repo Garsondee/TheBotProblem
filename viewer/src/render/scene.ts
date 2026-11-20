@@ -15,6 +15,7 @@ import type { Bot, World } from '../../../engine/world';
 import type { ResolveData, RoomData } from '../data';
 import { botLook, THEME, WIRE_COLOURS } from '../palette';
 import type { Snapshot } from '../state';
+import { heightOf } from '../state';
 import type { Frame } from './backdrop';
 import { drawStars, renderSky, renderTerrain } from './backdrop';
 import { drawBot } from './bots';
@@ -43,6 +44,8 @@ export interface SceneInput {
   stats: Record<string, BotStats>;
   /** Bots exiled from this room: out of the physics, but still here, faint, and still talking. */
   ghosts: ReadonlySet<string>;
+  /** Each bot's personality colour, for its eyes (games with personas). */
+  auras?: Readonly<Record<string, string>>;
 }
 
 interface Particle {
@@ -214,7 +217,8 @@ export class Scene {
         // A ghost hovers a little above the floor; a bot leaving through the exit rises as it fades.
         y: b.y / T + (ghost ? 0.12 + Math.sin(time * 1.6 + id.charCodeAt(0)) * 0.05 : b.look === 'exited' ? (1 - opacity) * 0.6 : 0),
         w: PHYS.botWidth / T,
-        h: PHYS.botHeight / T,
+        // A crouched bot is half as tall (engine: crouch).
+        h: heightOf(b.look) / T,
         vx: (b.vx / T) * 60,
         vy: (b.vy / T) * 60,
         anim: ghost ? 'idle' : b.look,
@@ -223,6 +227,7 @@ export class Scene {
         opacity,
         highlight: input.speaker === id ? speakerGlow : 0,
         happy: !ghost && (coinSince < 50 || b.look === 'exited') ? 1 : 0,
+        aura: input.auras?.[id] ?? null,
         time,
       });
     }
@@ -266,7 +271,7 @@ export class Scene {
       if (track.exitStep !== null && track.exitStep > from && track.exitStep <= to) {
         const b = track.at(track.exitStep);
         const cx = space.X((b.x + PHYS.botWidth / 2) / T);
-        const cy = space.Y((b.y + PHYS.botHeight / 2) / T);
+        const cy = space.Y((b.y + heightOf(b.look) / 2) / T);
         for (let i = 0; i < 14; i++) {
           const a = (i / 14) * Math.PI * 2;
           this.particles.push({ x: cx, y: cy, vx: Math.cos(a) * t * 1.6, vy: Math.sin(a) * t * 1.6 - t * 0.4, life: 0, max: 0.8, size: t * 0.08, colour: look.light });
@@ -353,7 +358,7 @@ export class Scene {
     const b = snap.bodies[id];
     if (!b || (b.look === 'exited' && !this.ghosts.has(id))) return;
     const cx = s.X((b.x + PHYS.botWidth / 2) / T);
-    const cy = s.Y((b.y + PHYS.botHeight / 2) / T);
+    const cy = s.Y((b.y + heightOf(b.look) / 2) / T);
     ctx.save();
     ctx.strokeStyle = alpha(botLook(id).light, 0.8);
     ctx.lineWidth = Math.max(1.5, s.t * 0.05);
@@ -373,7 +378,7 @@ export class Scene {
     const key = `${room.id}|${id}|${Math.round(b.x / 500)}|${Math.round(b.y / 500)}|${JSON.stringify(snap.switches.doors)}`;
     if (key !== this.sightKey || !this.sightCanvas) {
       this.sightKey = key;
-      const viewer = { id, x: b.x, y: b.y, w: PHYS.botWidth, h: PHYS.botHeight, phys: physicsFor(st) } as unknown as Bot;
+      const viewer = { id, x: b.x, y: b.y, w: PHYS.botWidth, h: heightOf(b.look), phys: physicsFor(st) } as unknown as Bot;
       const world = { level: room.level, doors: snap.switches.doors, bots: [viewer] } as unknown as World;
       const seen = visibleTiles(world, viewer);
       const c = this.sightCanvas ?? document.createElement('canvas');
@@ -407,7 +412,7 @@ export class Scene {
     const here = b !== undefined && (b.look !== 'exited' || (speaker !== null && this.ghosts.has(speaker)));
     const target = here ? 1 : 0;
     if (b && here) {
-      const p = this.toScreen(b.x + PHYS.botWidth / 2, b.y + PHYS.botHeight * 0.6);
+      const p = this.toScreen(b.x + PHYS.botWidth / 2, b.y + heightOf(b.look) * 0.6);
       if (jumped || this.spot.a < 0.02 || this.spot.id !== speaker) {
         this.spot.x = jumped || this.spot.a < 0.02 ? p.x : approach(this.spot.x, p.x, dt, 12);
         this.spot.y = jumped || this.spot.a < 0.02 ? p.y : approach(this.spot.y, p.y, dt, 12);

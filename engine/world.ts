@@ -10,7 +10,8 @@ import type { Level } from './level';
 import type { BotPhysics, BotStats } from './stats';
 import { physicsFor } from './stats';
 
-export type Anim = 'idle' | 'walk' | 'creep' | 'push' | 'jump' | 'fall' | 'climb' | 'hold' | 'exited';
+/** crouch: crouched and still; crawl: moving while crouched. */
+export type Anim = 'idle' | 'walk' | 'creep' | 'push' | 'jump' | 'fall' | 'climb' | 'hold' | 'crouch' | 'crawl' | 'exited';
 
 /** What a body stands on, or what stopped it. */
 export type Contact =
@@ -53,6 +54,23 @@ export interface Bot extends Body {
   purse: number;
   /** Tripped by another bot: it loses its next command slot (spec 7.4). */
   tripped: boolean;
+  /** Crouched: half height, creeping, no jumping or climbing, until it stands. */
+  crouched: boolean;
+  /**
+   * How much on guard this bot is, 0 to 1000. An attack on it succeeds with
+   * chance (1000 - alert) / 1000: everyone starts at 0, so the first attack
+   * always works; anyone who sees an attack goes to 1000; the game lowers it
+   * each round, at the bot's own guard rate.
+   */
+  alert: number;
+  /** Saw an attack during the round just played: its guard holds at full for the next round before it starts to drop. */
+  sawAttack: boolean;
+  /** Pushed past this round: it moves at half speed until the round ends. */
+  slowed: boolean;
+  /** Something done to this bot that ends its current command (a shove), with the reason it is told. */
+  interrupt: string | null;
+  /** The one bot this bot may pass through during the current slot (a swap's partner), or null. */
+  passThrough: string | null;
 }
 
 export interface Crate extends Body {
@@ -67,11 +85,21 @@ export type WorldEvent =
   | { step: number; type: 'door'; door: string; open: boolean }
   | { step: number; type: 'lever'; lever: string; on: boolean; by: string | null }
   | { step: number; type: 'exit'; bot: string; exit: string; place: number }
-  /** One bot doing something to another (spec 7.4). `by` is '?' in the anonymous announcement of harm. */
-  | { step: number; type: 'social'; action: 'trip' | 'steal' | 'give' | 'boost'; by: string; target: string; coins: number };
+  /**
+   * One bot doing something to another (spec 7.4). `by` is '?' in the anonymous announcement of harm.
+   * Attacks (trip, steal, push_past, shove) roll dice: `success` says whether it worked, `chance` was
+   * its chance in thousandths (from the target's alertness). Gifts and boosts don't roll.
+   */
+  | { step: number; type: 'social'; action: SocialAction; by: string; target: string; coins: number; success?: boolean; chance?: number };
+
+export type SocialAction = 'trip' | 'steal' | 'give' | 'boost' | 'push_past' | 'shove';
+/** The actions that are attacks: they roll dice, and whoever sees them goes on guard. */
+export const ATTACKS: ReadonlySet<SocialAction> = new Set(['trip', 'steal', 'push_past', 'shove']);
 
 export interface World {
   level: Level;
+  /** The state of the attack dice (engine/dice.ts): every roll advances it. */
+  dice: number;
   /** Simulation steps since the level began. */
   step: number;
   /** Sorted by id, always, so everything that loops over bots does so in the same order. */
@@ -123,10 +151,18 @@ export function createWorld(level: Level, stats: Readonly<Record<string, BotStat
         coins: [],
         purse: 0,
         tripped: false,
+        crouched: false,
+        passThrough: null,
+        alert: 0,
+        sawAttack: false,
+        slowed: false,
+        interrupt: null,
       };
     });
   return {
     level,
+    // The game seeds the dice for each room (engine/dice.ts); a fixed start keeps tests and validation repeatable.
+    dice: 1,
     step: 0,
     bots,
     crates: level.crates.map((c) => ({

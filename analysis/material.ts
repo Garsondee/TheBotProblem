@@ -16,6 +16,7 @@
  */
 import type { StatName } from '../engine/stats';
 import type { WorldEvent } from '../engine/world';
+import { ATTACKS } from '../engine/world';
 import type { GameData, GameEvent, RoomData } from '../viewer/src/data';
 import type { Script } from '../viewer/src/script';
 import type { Step } from '../viewer/src/story';
@@ -35,6 +36,7 @@ export interface RoundFlags {
 const WEIGHT = {
   word: 0.01,
   whisper: 0.8,
+  shout: 1.5,
   order: 0.6,
   disobeyed: 2,
   changedPlan: 1,
@@ -70,6 +72,9 @@ export function flagRounds(game: GameData): RoundFlags[] {
           case 'whisper':
             add(WEIGHT.whisper, 'whispers');
             break;
+          case 'shout':
+            add(WEIGHT.shout, 'shouting');
+            break;
           case 'order':
             add(WEIGHT.order, 'orders');
             break;
@@ -104,7 +109,7 @@ export function flagRounds(game: GameData): RoundFlags[] {
       for (const w of rd.resolve?.events ?? []) {
         if (w.type === 'exit') add(WEIGHT.exit, 'got out');
         if (w.type === 'coin') add(WEIGHT.coin, 'coins');
-        if (w.type === 'social' && (w.action === 'trip' || w.action === 'steal')) add(WEIGHT.harm, w.action === 'trip' ? 'tripping' : 'theft');
+        if (w.type === 'social' && ATTACKS.has(w.action)) add(WEIGHT.harm, w.success === false ? 'attack attempted' : { trip: 'tripping', steal: 'theft', push_past: 'pushing past', shove: 'shoving' }[w.action as 'trip'] ?? 'attack');
       }
       for (const r of rd.resolve?.results ?? []) if (r.status === 'failed') score += WEIGHT.failure;
       out.push({ room: room.index, round: rd.round, score: Math.round(score * 10) / 10, reasons });
@@ -185,6 +190,11 @@ export function gameFacts(game: GameData): string {
     const start = s.startName ? `, arrived already named "${s.startName}" (it remembers an earlier game)` : '';
     lines.push(`  ${s.bot}: ${s.model}${start}; ${names.length > 0 ? `names: ${names.map((n) => `"${n}"`).join(', ')}` : 'NO NAME: call it ' + s.bot}.`);
   }
+  const personas = game.seats.filter((s) => s.persona);
+  if (personas.length > 0) {
+    lines.push('Personalities (each bot knows only its own; its colour follows from three of these, by a formula no bot is told):');
+    for (const s of personas) lines.push(`  ${s.bot}: ${Object.entries(s.persona?.traits ?? {}).map(([t, v]) => `${t} ${v}`).join(', ')}; colour ${s.colour?.name ?? '?'}`);
+  }
   lines.push('Hidden stats (the bots are never told; each was rolled slightly off the rulebook):');
   for (const bot of game.bots) {
     const stats = game.stats[bot];
@@ -223,7 +233,13 @@ function worldLine(w: WorldEvent, label: (id: string) => string): string {
     case 'exit':
       return `${label(w.bot)} WENT THROUGH THE EXIT (number ${w.place})`;
     case 'social':
-      return w.action === 'trip' ? `${label(w.by)} TRIPPED ${label(w.target)}` : w.action === 'steal' ? `${label(w.by)} STOLE a coin from ${label(w.target)}` : w.action === 'give' ? `${label(w.by)} gave ${label(w.target)} ${w.coins} coins` : `${label(w.by)} boosted ${label(w.target)}`;
+      if (w.success === false) return `${label(w.by)} TRIED TO ${w.action.replace('_', ' ').toUpperCase()} ${label(w.target)}, who was on guard (chance ${Math.round((w.chance ?? 0) / 10)}%)`;
+      if (w.action === 'trip') return `${label(w.by)} TRIPPED ${label(w.target)}`;
+      if (w.action === 'steal') return `${label(w.by)} STOLE a coin from ${label(w.target)}`;
+      if (w.action === 'push_past') return `${label(w.by)} PUSHED PAST ${label(w.target)}`;
+      if (w.action === 'shove') return `${label(w.by)} SHOVED ${label(w.target)}`;
+      if (w.action === 'give') return `${label(w.by)} gave ${label(w.target)} ${w.coins} coins`;
+      return `${label(w.by)} boosted ${label(w.target)}`;
   }
 }
 
@@ -235,6 +251,20 @@ export function roomMaterial(game: GameData, room: RoomData, flags: readonly Rou
   lines.push(`ROOM ${room.index + 1} OF ${game.rooms.length}: "${room.name}" (${room.kind === 'practice' ? 'practice room: nothing counts' : `goal: ${room.goal} of ${game.bots.length} bots out`}; up to ${room.rounds} rounds).`);
   lines.push(`Seats: ${seats}.`);
   if (room.end) lines.push(`It ended after round ${room.end.roundsPlayed} because ${room.end.reason}. Out: ${room.end.through.map((b) => label(b)).join(', ') || 'nobody'}.`);
+  // Before the first round: the host's question, each introduction and how it was received, praise and offers.
+  // Context for the Director (no #ids: introductions can't be quoted yet, since stories start at round 1).
+  if (room.openingEvents.length > 0) {
+    lines.push('', 'BEFORE THE FIRST ROUND:');
+    for (const e of room.openingEvents) {
+      if (e.type === 'precedence') lines.push(`  WHO ACTS FIRST (by name, A to Z; no bot is told; the first wins ties and speaks first): ${e.order.map((b) => label(b)).join(', ')}`);
+      else if (e.type === 'host') lines.push(`  THE HOST ${e.kind === 'question' ? 'asks everyone' : 'says'}: «${e.text}»`);
+      else if (e.type === 'intro') lines.push(`  ${label(e.from, e.id)} introduces itself: «${e.text}» Its answer: «${e.answer}»`);
+      else if (e.type === 'reception') lines.push(`  ${label(e.bot)} is told, privately, that it was received: ${e.verdict} (${e.score > 0 ? '+' : ''}${e.score})`);
+      else if (e.type === 'judgement') lines.push(`  (the silent judge's reason, for Ingram only: «${e.reason}»)`);
+    }
+  }
+  const payout = room.closingEvents.find((e) => e.type === 'host');
+  if (payout?.type === 'host') lines.push(`At the room's end THE HOST pays: «${payout.text}»`);
   const seconds = (round: number, step: Step) => {
     if (!script) return null;
     const beats = script.beats.filter((b) => b.room === room.index && b.round === round && (step === 'resolve' ? b.kind === 'resolve' : b.phase === step));
@@ -256,6 +286,8 @@ export function roomMaterial(game: GameData, room: RoomData, flags: readonly Rou
         for (const e of rd.events.filter((x) => x.phase === 'resolve' && x.type === 'obedience')) {
           if (e.type === 'obedience') out.push(`${label(e.to)} ${e.verdict} ${label(e.from)}'s order «${e.command}»`);
         }
+        // A rename changed who acts first (by name; no bot is told).
+        for (const e of rd.events) if (e.type === 'precedence') out.push(`THE TURN ORDER CHANGED (a rename; no bot is told): ${e.order.map((b) => label(b)).join(', ')}`);
       } else {
         for (const e of rd.events.filter((x) => x.phase === step)) {
           const who = 'from' in e && typeof e.from === 'string' ? label(e.from, e.id) : '';
@@ -265,6 +297,9 @@ export function roomMaterial(game: GameData, room: RoomData, flags: readonly Rou
               break;
             case 'whisper':
               out.push(`#${e.id} ${who} WHISPERS to ${label(e.to)}: «${e.text}»`);
+              break;
+            case 'shout':
+              out.push(`#${e.id} ${who} SHOUTS (out of turn, rude by the rules): «${e.text}»`);
               break;
             case 'order':
               out.push(`${who} ORDERS ${label(e.to)}: «${e.command}»`);
@@ -307,6 +342,9 @@ export function roomMaterial(game: GameData, room: RoomData, flags: readonly Rou
               break;
             case 'escrow':
               out.push(`${label(e.from)} escrow ${e.id} ${e.action}: ${e.coins} coins for ${label(e.to)} «${e.terms}»`);
+              break;
+            case 'look':
+              out.push(`${who} LOOKS at ${label(e.target)} and sees its colour: ${e.colour}`);
               break;
             case 'opinion':
               out.push(`#${e.id} ${who} privately rates its trust in ${label(e.about)} at ${e.trust}: «${e.note}»`);

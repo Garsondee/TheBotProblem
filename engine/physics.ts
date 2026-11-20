@@ -38,6 +38,11 @@ export interface Intent {
   drop?: boolean;
   /** How the movement should look in the replay. */
   gait?: 'walk' | 'creep' | 'push';
+  /**
+   * Be at this exact spot after this step (a hop the game flies, see Hopper):
+   * no gravity, and the move still sweeps, so anything solid stops it.
+   */
+  glide?: { x: number; y: number };
 }
 
 export interface PushOutcome {
@@ -87,6 +92,13 @@ export function stepWorld(world: World, intents: ReadonlyMap<string, Intent>): S
     if (bot.onLadder) {
       bot.vx = 0;
       bot.vy = it.climbVy ?? 0;
+      continue;
+    }
+    if (it.glide) {
+      bot.vx = it.glide.x - bot.x;
+      bot.vy = it.glide.y - bot.y;
+      bot.grounded = false;
+      bot.airSteps = p.coyoteSteps + 1;
       continue;
     }
     if (it.drop && bot.grounded && isPlatform(bot.support)) {
@@ -174,7 +186,11 @@ export function stepWorld(world: World, intents: ReadonlyMap<string, Intent>): S
     }
     const gait = intents.get(bot.id)?.gait;
     if (bot.vx !== 0) bot.facing = bot.vx > 0 ? 1 : -1;
-    bot.anim = bot.onLadder
+    bot.anim = bot.crouched && bot.grounded && !bot.onLadder
+      ? bot.vx === 0
+        ? 'crouch'
+        : 'crawl'
+      : bot.onLadder
       ? 'climb'
       : !bot.grounded
         ? bot.vy > 0

@@ -7,6 +7,7 @@
  * walks, a stretch when it jumps, a squash when it lands, eyes that squint
  * when it pushes and widen when it falls, and a blink now and then.
  */
+import { eyeGlow } from '../palette';
 import type { BotLook } from '../palette';
 import type { Ctx } from './draw';
 import { alpha, clamp, hashOf, roundRect } from './draw';
@@ -34,6 +35,8 @@ export interface BotPose {
   /** 0 to 1: just did something good (a coin, the exit). */
   happy: number;
   time: number;
+  /** Its personality colour (game/persona.ts), shown in its eyes; its body keeps its own colour, so who is who stays clear. */
+  aura?: string | null;
 }
 
 function antenna(ctx: Ctx, shape: BotLook['antenna'], x: number, y: number, r: number): void {
@@ -124,7 +127,7 @@ export function drawBot(ctx: Ctx, s: Space, p: BotPose): void {
     sx = 0.95;
     sy = 1.05;
   }
-  const walking = p.anim === 'walk' || p.anim === 'creep' || p.anim === 'push';
+  const walking = p.anim === 'walk' || p.anim === 'creep' || p.anim === 'push' || p.anim === 'crawl';
   const bob = walking ? -Math.abs(Math.sin(p.x * Math.PI * 2.2)) * t * 0.05 : p.anim === 'idle' ? Math.sin(p.time * 2 + seed * 7) * t * 0.012 : 0;
   const lean = walking ? clamp(p.vx * 0.025, -0.13, 0.13) : airborne ? clamp(p.vx * 0.012, -0.08, 0.08) : 0;
   ctx.translate(fx, fy + bob);
@@ -198,14 +201,15 @@ export function drawBot(ctx: Ctx, s: Space, p: BotPose): void {
   }
   const look = p.anim === 'climb' ? 0 : p.facing * t * 0.05;
   const eyeY = faceY + faceH / 2 + (p.anim === 'climb' ? -t * 0.05 : 0);
-  ctx.shadowColor = p.look.light;
-  ctx.shadowBlur = t * 0.25;
-  ctx.fillStyle = '#effaff';
+  const eyes = p.aura ? eyeGlow(p.aura) : '#effaff';
+  ctx.shadowColor = p.aura ? eyes : p.look.light;
+  ctx.shadowBlur = t * (p.aura ? 0.4 : 0.25);
+  ctx.fillStyle = eyes;
   for (const side of [-1, 1]) {
     const ex = look + side * t * 0.105;
     if (p.happy > 0.3) {
       // Happy eyes: little arcs.
-      ctx.strokeStyle = '#effaff';
+      ctx.strokeStyle = eyes;
       ctx.lineWidth = Math.max(1.5, t * 0.05);
       ctx.beginPath();
       ctx.arc(ex, eyeY + t * 0.03, eyeW * 0.6, Math.PI * 1.1, Math.PI * 1.9);

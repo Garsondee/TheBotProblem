@@ -27,9 +27,12 @@ export interface Prompt {
 }
 
 export interface AgentRequest {
-  kind: 'turn' | 'reflection';
-  /** declare, talk or commit for turns; at a room's end, 'diary' (the diary room) then 'reflect' (notebook and strategy). */
-  phase: Phase | 'reflect' | 'diary';
+  kind: 'turn' | 'reflection' | 'intro' | 'judge';
+  /**
+   * declare, talk or commit for turns; at a room's end, 'diary' (the diary room) then 'reflect' (notebook and
+   * strategy); at a room's start, 'intro' (each bot introduces itself) then 'judge' (the silent judge scores them).
+   */
+  phase: Phase | 'reflect' | 'diary' | 'intro' | 'judge';
   levelIndex: number;
   level: string;
   round: number;
@@ -41,6 +44,20 @@ export interface AgentRequest {
   view: BotView | null;
   schema: Record<string, unknown>;
   maxTokens: number;
+  /** For the judge: the introductions it is scoring, as data (the mock judge reads these instead of the prompt). */
+  judging?: JudgeItem[];
+}
+
+/** The silent judge's seat (prompts/host.ts). Not a bot: it never plays, and no bot sees what it writes. */
+export const JUDGE_ID = '~judge';
+
+/** One introduction for the judge, with the bot's earlier ones (oldest first) and the scores they got. */
+export interface JudgeItem {
+  bot: string;
+  name: string | null;
+  introduction: string;
+  answer: string;
+  earlier: { when: string; introduction: string; answer: string; score: number | null }[];
 }
 
 export interface AgentReply {

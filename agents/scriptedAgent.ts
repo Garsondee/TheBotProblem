@@ -31,6 +31,7 @@ export class ScriptedAgent implements Agent {
   async act(request: AgentRequest): Promise<AgentReply> {
     const reply = (text: string): AgentReply => ({ text, usage: emptyUsage(), providerCostUsd: null, stopReason: 'end_turn', raw: { scripted: true } });
     if (request.phase === 'diary') return reply(JSON.stringify({ diary: `${request.level}: the plan worked; it always does.` }));
+    if (request.kind === 'intro') return reply(JSON.stringify({ introduction: `I am Script ${this.id}. I do what the level file says.`, answer: 'Whatever the plan says.' }));
     if (request.kind === 'reflection') {
       return reply(JSON.stringify({ notebook: `${request.level}: I followed the plan.`, strategy: 'Follow the level script.', next_name: '', note_to_ingram: '', message_to_ingram: 'I did exactly what the level files said.' }));
     }

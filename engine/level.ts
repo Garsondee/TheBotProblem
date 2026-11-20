@@ -45,6 +45,18 @@ const KeyEntrySchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('exit'), id: Id, slots: z.number().int().min(1) }),
 ]);
 
+/**
+ * What the game's host may offer coins for in a room (prompts/host.ts), paid into purses when the room
+ * ends. Each is a fact the game can check for itself at that moment.
+ */
+export const BOUNTY_KINDS = ['first_out', 'richest', 'left_behind', 'holding_lever'] as const;
+export type BountyKind = (typeof BOUNTY_KINDS)[number];
+export interface BountyDef {
+  for: BountyKind;
+  coins: number;
+}
+export const BountySchema = z.object({ for: z.enum(BOUNTY_KINDS), coins: z.number().int().min(1).max(20) });
+
 export const LevelFileSchema = z.object({
   $comment: z.string().optional(),
   id: z.string().min(1),
@@ -59,6 +71,13 @@ export const LevelFileSchema = z.object({
   kind: z.enum(['puzzle', 'practice']).default('puzzle'),
   /** How many rounds the bots get in this level. */
   rounds: z.number().int().min(1).max(100).default(12),
+  /**
+   * Talk only every this many rounds (Ingram, 2026-11-20: "let the bot take three moves and speak only once in
+   * that time"). 1 = every round. The rounds between are silent: one commit each, and only a shout carries.
+   */
+  talkEvery: z.number().int().min(1).max(12).default(1),
+  /** The host's offers in this room (prompts/host.ts): coins for things done here, paid when it ends. */
+  host: z.object({ bounties: z.array(BountySchema).default([]) }).default({ bounties: [] }),
   map: z.array(z.string()).min(3),
   key: z.record(z.string().length(1), KeyEntrySchema).default({}),
   goal: z.object({ botsThrough: z.number().int().min(1) }).optional(),
@@ -86,6 +105,10 @@ export interface Level {
   cooperative: boolean;
   kind: 'puzzle' | 'practice';
   rounds: number;
+  /** Talk happens in rounds 1, 1 + talkEvery, ...; the rest are silent. */
+  talkEvery: number;
+  /** Coins the host offers in this room (from the file's "host"). */
+  bounties: BountyDef[];
   width: number;
   height: number;
   /** One tile code per cell; index (ty * width + tx). Shared by every world built from this level, never changed. */
@@ -117,6 +140,53 @@ export function isLadderTop(level: Level, tx: number, ty: number): boolean {
   return tileAt(level, tx, ty) === TILE.LADDER && tileAt(level, tx, ty + 1) !== TILE.LADDER;
 }
 
+/** A ladder: one column of ladder tiles, `height` tall, its bottom tile at (tx, ty). */
+export interface LadderDef { id: string; tx: number; ty: number; height: number }
+/** A run of one-way platform tiles in a row, from column tx0 up to (not including) tx1. */
+export interface PlatformRun { tx0: number; tx1: number; ty: number }
+
+const ladderCache = new WeakMap<Level, LadderDef[]>();
+const platformCache = new WeakMap<Level, PlatformRun[]>();
+
+/**
+ * The level's ladders, named H1, H2, ... from left to right (then bottom to
+ * top). Ladders are drawn as tiles, so they get their ids here: the same
+ * level always gives the same names, and a bot can walk_to(H1) like any
+ * other thing in the room.
+ */
+export function laddersOf(level: Level): LadderDef[] {
+  const cached = ladderCache.get(level);
+  if (cached) return cached;
+  const out: LadderDef[] = [];
+  for (let tx = 0; tx < level.width; tx++) {
+    for (let ty = 0; ty < level.height; ty++) {
+      if (tileAt(level, tx, ty) !== TILE.LADDER || tileAt(level, tx, ty - 1) === TILE.LADDER) continue;
+      let height = 1;
+      while (tileAt(level, tx, ty + height) === TILE.LADDER) height++;
+      out.push({ id: `H${out.length + 1}`, tx, ty, height });
+    }
+  }
+  ladderCache.set(level, out);
+  return out;
+}
+
+/** The level's one-way platforms, as runs of tiles in a row. */
+export function platformsOf(level: Level): PlatformRun[] {
+  const cached = platformCache.get(level);
+  if (cached) return cached;
+  const out: PlatformRun[] = [];
+  for (let ty = 0; ty < level.height; ty++) {
+    for (let tx = 0; tx < level.width; tx++) {
+      if (tileAt(level, tx, ty) !== TILE.ONEWAY || tileAt(level, tx - 1, ty) === TILE.ONEWAY) continue;
+      let end = tx + 1;
+      while (tileAt(level, end, ty) === TILE.ONEWAY) end++;
+      out.push({ tx0: tx, tx1: end, ty });
+    }
+  }
+  platformCache.set(level, out);
+  return out;
+}
+
 /** Turn a checked level file into a Level, or throw listing every problem found. */
 export function parseLevel(file: LevelFile): Level {
   const problems: string[] = [];
@@ -131,6 +201,8 @@ export function parseLevel(file: LevelFile): Level {
     cooperative: file.tags.includes('cooperative'),
     kind: file.kind,
     rounds: file.rounds,
+    talkEvery: file.talkEvery,
+    bounties: file.host.bounties,
     width,
     height,
     tiles,

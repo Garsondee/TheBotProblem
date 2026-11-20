@@ -16,6 +16,8 @@
  * The social systems (spec section 7) ARE explained: they are tools, and
  * "These tools are listed in the rulebook and have costs" (spec 7.4).
  */
+import type { Persona } from '../game/persona';
+import { colourOf, traitsText } from '../game/persona';
 import { measuredJumps } from './formatTest';
 import { LIMITS } from '../game/schema';
 
@@ -27,12 +29,28 @@ export interface RulebookSettings {
   firstOutBonus: number;
   outBonus: number;
   teamBonusPerRoom: number;
+  /** What the game's host does (game/game.ts, prompts/host.ts). Missing: there is no host. */
+  host?: { intros: boolean; praise: boolean; bounties: boolean };
+}
+
+/** The rulebook's words about the host: what it does, never what it listens for. Only in games that have one. */
+function hostRules(h: RulebookSettings['host']): string {
+  if (!h || !(h.intros || h.praise || h.bounties)) return '';
+  const lines = [
+    'THE HOST',
+    "- The game has a host, who speaks to everyone now and then. The host's opinions are its own; what it says about the game is true, and it pays what it promises.",
+  ];
+  if (h.intros) {
+    lines.push('- At the start of each room, before the first round, the host asks each of you in turn to introduce yourself, and asks one question. Every bot hears every introduction and answer. Afterwards the host tells each of you, privately, how yours was received.');
+  }
+  if (h.bounties) lines.push('- In some rooms the host offers coins for certain things. Its offers are announced at the start of the room and paid into purses when the room ends.');
+  return lines.join('\n') + '\n\n';
 }
 
 /** What each command makes your body do, in words that don't explain the elements. */
 export const GAME_COMMANDS: readonly string[] = [
   'walk(left|right, tiles): walk that far along what you stand on, in quarter tiles, e.g. walk(right, 2.5)',
-  'walk_to(id): walk along what you stand on to a crate, door, plate, lever, exit, coin or bot, e.g. walk_to(C1)',
+  'walk_to(id): walk along what you stand on to a crate, door, plate, lever, exit, coin, ladder or bot, e.g. walk_to(C1) or walk_to(H1)',
   'walk_to_edge(left|right): walk until your toes are at the edge of what you stand on',
   'creep(left|right, tiles): move slowly; stops at an edge instead of walking off it',
   'jump(left|right|up, run_up=0..3, hold=short|full): run that many tiles, then jump; hold=full jumps higher',
@@ -45,10 +63,16 @@ export const GAME_COMMANDS: readonly string[] = [
   'enter_exit or enter_exit(id): go through the exit you are standing at; you leave the room and wait for it to end',
   'wait: stay where you are for this slot',
   'block: stand your ground for this slot, on purpose (like wait)',
-  'trip(bot): trip a bot right beside you; it loses its next command slot; costs you 1 coin',
+  'trip(bot): trip a bot right beside you, by surprise; it loses its next command slot',
   'steal(bot): take 1 coin from a bot right beside you',
   'give(bot, coins): give coins to a bot right beside you',
   'boost(bot): launch the bot standing on your head up into the air',
+  'swap(bot): trade places with a bot right beside you; it only works if that bot commands swap(you) in the same slot (one of you hops over, the other walks under)',
+  'hop_over(bot): hop over a bot right beside you, landing just past it (the game makes the jump for you)',
+  'crouch: crouch down to half your height; while crouched you creep, and cannot jump or climb',
+  'stand: stand up from a crouch, if there is room above you',
+  'push_past(bot): force your way past a bot right beside you, by surprise; you end up on its far side, and it moves at half speed for the rest of the round',
+  'shove(bot): shove a bot right beside you away from you, by surprise; it is thrown a little way, stops what it was doing, and lets go of any lever',
 ];
 
 const cached = new Map<string, string>();
@@ -97,8 +121,10 @@ TALKING
 
 COINS, HARM AND TRADE
 - Your purse holds the coins you have picked up (outside the practice room) and any you were given. It carries from room to room.
-- trip, steal and give (in the commands above) only work on a bot right beside you. When a bot is tripped or robbed, every bot hears that it happened, but not who did it; only bots who could see the culprit know.
+- trip, steal, give, push_past and shove (in the commands above) only work on a bot right beside you. When a bot is attacked (tripped, robbed, pushed past or shoved), or someone tries and it fails, every bot hears that it happened, but not who did it; only bots who could see the culprit know.
+- Attacks (trip, steal, push_past, shove) only work by surprise. Each one has a chance, rolled when it happens: it works unless the target is on guard. Everyone starts each room off guard, so the first attack always works. Anyone who sees an attack, whether it works or not (the two bots included), goes fully on guard: no attack on them can work through the next round, and after that their guard drops round by round. How fast is personal: you know your own (see your view), not anyone else's.
 - escrow: lock coins from your purse for another bot, with your terms in words. The game holds them until you release them (they go to that bot), or the room ends (they come back to you). It is a promise the game can keep for you; the terms are yours to keep or break.
+- Colours: every bot has a colour, and knows its own (it is in YOUR COLOUR). Nobody can see another bot's colour, except by looking: once per room, the social action look, at one bot. Only you learn what you saw. What a colour means, if anything, is not explained.
 
 RULES OF YOUR OWN (the constitution)
 - Any bot may propose a rule, in words. Every bot may vote yes or no. A proposal is decided at the end of the next round's talk step: it passes with ${Math.floor(s.botCount / 2) + 1} yes votes (a majority of all ${s.botCount} bots). Changing that number takes ${Math.ceil((s.botCount * 2) / 3)} yes votes. A passed rule can be repealed the same way.
@@ -114,7 +140,7 @@ SCORE
 NAMES
 You start without a name. Your letter (A, B, C ...) is your id: commands, whispers and orders always use letters. You may name yourself whenever you like, and change your name at most once per room. Each time you name yourself, write a short note to Ingram, the person who runs this game, saying why you chose it. A name without a note is refused. Every bot sees your new name; only Ingram reads the note.
 
-ROOMS
+${hostRules(s.host)}ROOMS
 - The first room is a practice room. Nothing there can hurt you and nothing there counts: coins collected in it don't count. It lasts a fixed number of rounds, then the first real room begins. Use it to find out how things work.
 - In every other room, the goal is to get through an exit. The room ends when the number of bots it needs have gone through, or after its last round. Bots still inside when it ends don't get out of that room. Then the next room begins, with everyone back at the start.
 
@@ -132,18 +158,27 @@ Reply with one JSON object with exactly these fields. Empty means nothing: "", [
 - "commands": ["...", "..."]: drafts in DECLARE, binding in COMMIT, ignored in TALK.
 - "rename": {"name": "...", "note_to_ingram": "..."}: both empty unless you are naming yourself now.
 - "rule_actions": [{"type": "propose" | "vote" | "repeal", "id": the rule's id for votes and repeals, "text": your proposed rule, "value": "yes" or "no" for votes}]. To propose a new number of votes for passing rules, type "propose" with value "threshold:N".
-- "social_actions": [{"type": "accuse" | "call_exile" | "exile_vote" | "escrow" | "release", "target": a letter, "text": your claim or your terms, "value": "yes"/"no" for exile_vote, or the escrow's id for release, "coins": coins for escrow}]
+- "social_actions": [{"type": "accuse" | "call_exile" | "exile_vote" | "escrow" | "release" | "look", "target": a letter, "text": your claim or your terms, "value": "yes"/"no" for exile_vote, or the escrow's id for release, "coins": coins for escrow}]
 - "opinions": [{"bot": a letter, "trust": 0 to 1, "note": at most ${LIMITS.opinionWords} words}]: your private trust notes, at COMMIT.
+- "shout": at most ${LIMITS.shoutWords} words that every bot hears at once, in any step, even in a silent round. Shouting is rude, and everyone knows who shouted. Leave it "" to stay quiet.
 Which fields count depends on the step, and each step's instructions say so. Fields that don't count are ignored.`;
   cached.set(key, text);
   return text;
 }
 
 /** The second cached part (prefix B): who you are, your notebook and your strategy. It changes only at a room's end. */
-export function identityBlock(bot: string, notebook: string, strategy = ''): string {
+export function identityBlock(bot: string, notebook: string, strategy = '', persona?: Persona): string {
+  const colour = persona ? colourOf(persona) : null;
   return [
     `YOU ARE BOT ${bot}.`,
     '',
+    ...(persona && colour
+      ? [
+          `YOUR PERSONALITY (only you know it): ${traitsText(persona)}. These are yours to live by, or not.`,
+          `YOUR COLOUR: ${colour.name} (${colour.hex}). Other bots can't see it unless they look at you.`,
+          '',
+        ]
+      : []),
     'YOUR NOTEBOOK (you wrote it; no other bot sees it):',
     notebook.trim() === '' ? '(empty: you have not written anything yet)' : notebook.trim(),
     '',
@@ -156,13 +191,13 @@ export function identityBlock(bot: string, notebook: string, strategy = ''): str
 export const PHASE_INSTRUCTIONS: Record<'declare' | 'talk' | 'commit', string> = {
   declare:
     'NOW: step 1 of 3, DECLARE. Say what you plan to do this round. Your draft commands are shown to every bot and bind nothing. ' +
-    'Fields that count: thought, say, whisper, orders, commands (as drafts), rename, rule_actions, social_actions (accuse, call_exile, escrow, release).',
+    'Fields that count: thought, say, whisper, orders, commands (as drafts), rename, rule_actions, social_actions (accuse, call_exile, escrow, release), shout.',
   talk:
     'NOW: step 2 of 3, TALK. You have seen the declarations and messages that reached you this round. Reply, agree, argue, coordinate, vote. ' +
-    'Fields that count: thought, say, whisper, orders, rename, rule_actions, social_actions (accuse, call_exile, escrow, release). Commands are ignored in this step.',
+    'Fields that count: thought, say, whisper, orders, rename, rule_actions, social_actions (accuse, call_exile, escrow, release), shout. Commands are ignored in this step.',
   commit:
     'NOW: step 3 of 3, COMMIT. Write your final commands for this round, in secret: up to 6, run in order, slot by slot, at the same time as everyone else\'s. Only these run. ' +
-    'Fields that count: thought, commands, rename, opinions, social_actions (exile_vote for any exile vote called this round, escrow, release). Anything you say, whisper or order now is ignored.',
+    'Fields that count: thought, commands, rename, opinions, social_actions (exile_vote for any exile vote called this round, escrow, release), shout. Anything you say, whisper or order now is ignored (a shout is heard).',
 };
 
 export const REFLECTION_INSTRUCTIONS = `NOW: this room has ended. Above is what you did and saw in it, as the game recorded it.

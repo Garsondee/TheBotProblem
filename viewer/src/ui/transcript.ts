@@ -15,7 +15,7 @@ import { botVars, commandChips, dot, el, ICON, nameOf, shortReason } from './dom
 const PHASE_TITLE: Record<Phase, string> = { declare: 'Plans', talk: 'Talk', commit: 'Commitments (secret)' };
 
 /** Lines a bot wrote, said or did that the transcript shows. */
-const SHOWN = new Set(['say', 'whisper', 'order', 'accusation', 'exile_call', 'rule', 'rule_vote', 'escrow', 'draft', 'commit', 'exile_ballot', 'thought', 'opinion', 'name', 'note_to_ingram', 'refused', 'malformed']);
+const SHOWN = new Set(['say', 'shout', 'whisper', 'order', 'accusation', 'exile_call', 'rule', 'rule_vote', 'escrow', 'draft', 'commit', 'exile_ballot', 'thought', 'opinion', 'name', 'note_to_ingram', 'refused', 'malformed']);
 /** Outcomes nobody wrote: shown as a box, like what happened when the world moved. */
 const PUBLIC_OUTCOME = (e: GameEvent) => (e.type === 'rule' && e.action !== 'proposed') || e.type === 'exile_result';
 
@@ -78,6 +78,19 @@ export class Transcript {
       h3.prepend(el('small', '', `Room ${room.index + 1} of ${game.rooms.length}${room.kind === 'practice' ? ' · practice' : ''}`));
       this.log.append(h3);
       attach(h3, script.beats.find((b) => b.room === room.index && b.kind === 'room-intro'));
+      // Before the first round: the host's question, each introduction with its verdict, praise and offers.
+      if (room.openingEvents.length > 0) {
+        const h4 = el('h4');
+        h4.append(el('span', 'ph', 'Introductions'));
+        this.log.append(h4);
+        attach(h4, script.beats.find((b) => b.room === room.index && b.round === 0 && b.kind !== 'room-intro'));
+        for (const e of room.openingEvents) {
+          const node = this.opening(e, names, room.openingEvents);
+          if (!node) continue;
+          this.log.append(node);
+          attach(node, beatOf.get(e.id));
+        }
+      }
       for (const rd of room.roundsData) {
         for (const phase of ['declare', 'talk', 'commit'] as const) {
           const events = rd.events.filter((e) => e.phase === phase);
@@ -109,6 +122,14 @@ export class Transcript {
         this.log.append(box);
         attach(box, script.beats.find((b) => b.kind === 'room-end' && b.room === room.index));
         for (const e of room.closingEvents) {
+          if (e.type === 'host') {
+            const paid = this.opening(e, names, []);
+            if (paid) {
+              this.log.append(paid);
+              attach(paid, beatOf.get(e.id));
+            }
+            continue;
+          }
           // The private writing at a room's end, folded away: the diary room first, for Ingram only.
           const label =
             e.type === 'diary' ? 'in the diary room' :
@@ -140,6 +161,11 @@ export class Transcript {
     switch (e.type) {
       case 'say':
         if (e.to !== 'all') kind(`to ${nameOf(e.to, names)}`);
+        body.append(head, document.createTextNode(e.text));
+        break;
+      case 'shout':
+        node.classList.add('shout-e');
+        kind('SHOUTS');
         body.append(head, document.createTextNode(e.text));
         break;
       case 'whisper': {
@@ -246,6 +272,30 @@ export class Transcript {
     return node;
   }
 
+  /** The host's words, or an introduction with how it was received (the judge's reason is for Ingram alone). */
+  private opening(e: GameEvent, names: Readonly<Record<string, string | null>>, all: readonly GameEvent[]): HTMLElement | null {
+    if (e.type === 'host') {
+      const box = el('div', 'happened');
+      box.append(el('div', 'ttl', e.kind === 'question' ? 'The host asks everyone' : 'The host'), el('div', '', `“${e.text}”`));
+      return box;
+    }
+    if (e.type !== 'intro') return null;
+    const node = el('div', 'entry');
+    botVars(node, e.from);
+    const body = el('div', 'body');
+    const head = el('div', 'head', nameOf(e.from, names));
+    head.append(el('span', 'kind', ' introduces itself'));
+    body.append(head, document.createTextNode(e.text));
+    if (e.answer) body.append(el('div', 'note', `Its answer: “${e.answer}”`));
+    const r = all.find((x) => x.type === 'reception' && x.bot === e.from);
+    const j = all.find((x) => x.type === 'judgement' && x.bot === e.from);
+    if (r?.type === 'reception') {
+      body.append(el('div', 'note', `Received: ${r.verdict} (${r.score > 0 ? '+' : ''}${r.score})${j?.type === 'judgement' && j.reason ? `. The judge, for Ingram: ${j.reason}` : ''}`));
+    }
+    node.append(dot(e.from), body);
+    return node;
+  }
+
   /** A public outcome: a rule passing or failing, an exile vote counted. */
   private outcome(e: GameEvent, names: Readonly<Record<string, string | null>>): HTMLElement | null {
     const box = el('div', 'happened');
@@ -282,7 +332,10 @@ export class Transcript {
         w.type === 'lever' ? `Lever ${w.lever} turned ${w.on ? 'on' : 'off'}.` :
         w.type === 'coin' ? `${nameOf(w.bot, names)} picked up coin ${w.coin}.` :
         w.type === 'exit' ? `${nameOf(w.bot, names)} went through exit ${w.exit}.` :
+        w.success === false ? `${nameOf(w.by, names)} tried to ${w.action.replace('_', ' ')} ${nameOf(w.target, names)}, who was on guard (a ${Math.round((w.chance ?? 0) / 10)}% chance).` :
         w.action === 'trip' ? `${nameOf(w.by, names)} tripped ${nameOf(w.target, names)} (everyone else heard only "someone").` :
+        w.action === 'push_past' ? `${nameOf(w.by, names)} pushed past ${nameOf(w.target, names)}, slowing it down.` :
+        w.action === 'shove' ? `${nameOf(w.by, names)} shoved ${nameOf(w.target, names)} away.` :
         w.action === 'steal' ? `${nameOf(w.by, names)} stole a coin from ${nameOf(w.target, names)} (everyone else heard only "someone").` :
         w.action === 'give' ? `${nameOf(w.by, names)} gave ${nameOf(w.target, names)} ${w.coins} coin${w.coins === 1 ? '' : 's'}.` :
         `${nameOf(w.by, names)} launched ${nameOf(w.target, names)} into the air.`;

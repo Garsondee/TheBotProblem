@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { MemoryBank } from '../game/memory';
+import type { Persona } from '../game/persona';
 import { agentIdsFor, emptyBank } from '../game/memory';
 import { PROJECT_ROOT } from './config';
 import { writeJsonAtomic } from './files';
@@ -26,6 +27,10 @@ const BankSchema = z.object({
       notebook: z.string(),
       strategy: z.string(),
       games: z.array(z.object({ seed: z.string(), letter: z.string(), startName: z.string().nullable(), endName: z.string().nullable() })),
+      persona: z.object({ traits: z.object({ boldness: z.number(), warmth: z.number(), honesty: z.number(), curiosity: z.number(), patience: z.number() }) }).optional(),
+      intros: z
+        .array(z.object({ seed: z.string(), room: z.string(), question: z.string(), introduction: z.string(), answer: z.string(), score: z.number().nullable() }))
+        .optional(),
     }),
   ),
 });
@@ -58,7 +63,7 @@ export function bankFromReplay(replayText: string, seed: string): MemoryBank {
     .split('\n')
     .filter((l) => l.trim() !== '')
     .map((l) => JSON.parse(l) as Record<string, unknown>);
-  const header = records.find((r) => r.rec === 'game') as { seats: { bot: string; model: string; agent?: string | null }[] } | undefined;
+  const header = records.find((r) => r.rec === 'game') as { seats: { bot: string; model: string; agent?: string | null; persona?: Persona }[] } | undefined;
   if (!header) throw new Error('That file has no game header: is it a replay.jsonl?');
   const seats = [...header.seats].sort((a, b) => a.bot.localeCompare(b.bot));
   const ids = agentIdsFor(seats.map((s) => ({ model: s.model, agent: s.agent ?? undefined })));
@@ -71,7 +76,15 @@ export function bankFromReplay(replayText: string, seed: string): MemoryBank {
   seats.forEach((s, i) => {
     const agent = ids[i] as string;
     const name = end?.nextNames?.[s.bot] ?? end?.names?.[s.bot] ?? null;
-    bank.agents[agent] = { agent, model: s.model, name, notebook: last('notebook', s.bot), strategy: last('strategy', s.bot), games: [{ seed, letter: s.bot, startName: null, endName: name }] };
+    bank.agents[agent] = {
+      agent,
+      model: s.model,
+      name,
+      notebook: last('notebook', s.bot),
+      strategy: last('strategy', s.bot),
+      games: [{ seed, letter: s.bot, startName: null, endName: name }],
+      ...(s.persona ? { persona: s.persona } : {}),
+    };
   });
   return bank;
 }

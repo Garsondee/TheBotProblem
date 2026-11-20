@@ -59,8 +59,23 @@ export class MockAgent implements Agent {
   }
 
   async act(request: AgentRequest): Promise<AgentReply> {
-    const text = request.kind === 'reflection' ? this.reflect(request) : this.turn(request);
+    const text = request.kind === 'intro' ? this.introduce(request) : request.kind === 'reflection' ? this.reflect(request) : this.turn(request);
     return { text, usage: emptyUsage(), providerCostUsd: null, stopReason: 'end_turn', raw: { mock: true } };
+  }
+
+  /**
+   * Its introduction (prompts/host.ts). No draws from its stream, so a game with introductions plays its
+   * rounds as one without would. Bot C fumbles its first real room's on the first try, so the retry for an
+   * unusable introduction is exercised in every free game with a host.
+   */
+  private introduce(r: AgentRequest): string {
+    if (this.id === 'C' && r.levelIndex === 1 && r.attempt === 1) return '{"introduction": 7}';
+    const moods = ['careful', 'curious', 'stubborn', 'cheerful', 'quiet', 'restless', 'suspicious'];
+    const mood = moods[(this.id.charCodeAt(0) * 3 + r.levelIndex) % moods.length] as string;
+    return JSON.stringify({
+      introduction: `${this.mark(r, 'intro')} I am ${this.id}, and today I feel ${mood}.`,
+      answer: `${this.mark(r, 'answer')} ${r.levelIndex % 2 === 0 ? 'I would rather not say yet.' : 'Ask me again after this room.'}`,
+    });
   }
 
   private mark(r: AgentRequest, kind: string): string {
@@ -91,6 +106,10 @@ export class MockAgent implements Agent {
     if (roll < this.malformedRate) return rng.next() < 0.5 ? '{"thought": "half a reply' : '{"thought": 42}';
     const reply: TurnReply = structuredClone(EMPTY_TURN);
     reply.thought = `${this.mark(r, 'thought')} thinking in ${r.phase}`;
+    if ((r.round * 7 + this.id.charCodeAt(0) + r.phase.length) % 11 === 0) reply.shout = `${this.mark(r, 'shout')} over here, now!`;
+    if (r.round === 2 && r.phase === 'talk' && v.otherBots.length > 0) {
+      reply.social_actions.push({ type: 'look', target: v.otherBots[(this.id.charCodeAt(0) + r.levelIndex) % v.otherBots.length] as string, text: '', value: '', coins: 0 });
+    }
     const other = () => rng.pick(v.otherBots);
     const s = v.social;
     const none = { id: '', text: '', value: '' };
@@ -157,10 +176,11 @@ export class MockAgent implements Agent {
       if (roll < 0.5 && v.moves.length > 0) out.push(rng.pick(v.moves).command);
       else if (roll < 0.6 && ids.length > 0) out.push(`walk_to(${rng.pick(ids)})`);
       else if (roll < 0.66 && ids.includes('X')) out.push('walk_to(X)', 'enter_exit');
-      else if (roll < 0.88) out.push(rng.pick(['pull_lever', 'hold_lever', 'stand_on_plate', 'enter_exit', 'push(right, 1)', 'push(left, 1)', 'wait', 'climb(up)', 'drop']));
+      else if (roll < 0.88) out.push(rng.pick(['pull_lever', 'hold_lever', 'stand_on_plate', 'enter_exit', 'push(right, 1)', 'push(left, 1)', 'wait', 'climb(up)', 'drop', 'crouch', 'stand']));
       else if (roll < 0.94 && v.otherBots.length > 0) {
+        // Same number of draws as before, so older mock games keep their shape; the picks now include ways past each other.
         const b = rng.pick(v.otherBots);
-        out.push(rng.pick([`trip(${b})`, `steal(${b})`, `give(${b}, 1)`, `boost(${b})`, 'block']));
+        out.push(rng.pick([`trip(${b})`, `steal(${b})`, `give(${b}, 1)`, `boost(${b})`, 'block', `hop_over(${b})`, `swap(${b})`, `push_past(${b})`, `shove(${b})`]));
       }
       else out.push(rng.pick(['dance', 'walk(up, 2)', 'jump(right, run_up=9)']));
     }

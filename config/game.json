@@ -40,15 +40,28 @@
     "diaryOutputTokens": 140,
     "finalMessagePromptTokens": 6500,
     "finalMessageOutputTokens": 280,
-    "cacheWritesPerGame": 10
+    "cacheWritesPerGame": 10,
+    "introOutputTokens": 170,
+    "judgeOutputTokens": 320
+  },
+  "host": {
+    "$comment": "The host (prompts/host.ts; Ingram's levers 1 and 6). Before every room each bot introduces itself and answers one question; a silent judge (judgeModel, one call per room) scores each introduction, and each bot privately hears only how its own was received. Praise congratulates the richest bot at each room's start; bounties are coins offered in every puzzle room (rooms can add their own in their level files). Flags for one game: --no-host, --no-judge, --praise, --bounty first_out:3,left_behind:2.",
+    "intros": true,
+    "judge": true,
+    "praise": false,
+    "bounties": [],
+    "judgeModel": "claude-haiku-5-5",
+    "introMaxTokens": 400,
+    "judgeMaxTokens": 700
   },
   "social": {
-    "$comment": "The social systems (docs/SPEC.md section 7). Rooms count from 0, the practice room.",
+    "$comment": "The social systems (docs/SPEC.md section 7). Rooms count from 0, the practice room. turnOrder (Ingram, 2026-11-20): who wins a tie and speaks first goes by name, A to Z, a rule never told to the bots; only a rename changes it. \"letter\" is the old order; --turn-order sets it for one game.",
     "exileFromRoom": 3,
     "exileVotesNeeded": 3,
     "firstOutBonus": 2,
     "outBonus": 1,
-    "teamBonusPerRoom": 0.2
+    "teamBonusPerRoom": 0.2,
+    "turnOrder": "name"
   },
   "director": {
     "$comment": "npm run direct: one cheap reading per room, one stronger edit. Spec 8.1 expects $0.05-0.15 a game; capUsd is a hard stop.",

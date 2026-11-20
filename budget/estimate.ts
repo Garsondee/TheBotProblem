@@ -15,7 +15,7 @@ import type { ModelPrice, PriceCeiling, PriceTable } from './prices';
 import { priceOf, worstCaseCallUsd, worstCasePrice } from './prices';
 import type { Provider } from './usage';
 
-export type CallKind = 'turn' | 'reflection' | 'diary' | 'finalMessage';
+export type CallKind = 'turn' | 'reflection' | 'diary' | 'finalMessage' | 'intro' | 'judge';
 
 /** One kind of model call, as one bot makes it over a whole game. */
 export interface CallShape {
@@ -33,6 +33,12 @@ export interface CallShape {
    * read what the turn calls cached.
    */
   freshCache?: boolean;
+  /**
+   * Sent without cache marks on purpose (an introduction: its own schema could never read the turns' cache,
+   * and a cache write costs more than plain input). Paid in full, and it doesn't count against the seat's
+   * cache minimum.
+   */
+  uncached?: boolean;
   expectedOutputTokens: number;
   maxOutputTokens: number;
 }
@@ -148,7 +154,7 @@ export function estimateSeat(
   const notes: string[] = [];
   let caches = seat.caching === 'explicit';
   const minimum = price.minCacheableTokens ?? 0;
-  if (caches && shapes.some((s) => s.cacheableTokens < minimum)) {
+  if (caches && shapes.some((s) => !s.uncached && s.cacheableTokens < minimum)) {
     caches = false;
     notes.push(`the cacheable prefix is shorter than ${seat.model}'s ${minimum}-token minimum, so nothing would be cached`);
   }
@@ -178,13 +184,13 @@ export function estimateSeat(
     // This model's own token count for the same prompt.
     const ratio = seat.tokenRatio ?? 1;
     const s = { ...raw, promptTokens: Math.round(raw.promptTokens * ratio), cacheableTokens: Math.round(raw.cacheableTokens * ratio) };
-    const cached = caches ? Math.min(s.cacheableTokens, s.promptTokens) : 0;
+    const cached = caches && !s.uncached ? Math.min(s.cacheableTokens, s.promptTokens) : 0;
     // A provider that caches by itself: the measured share of each prompt is read from its cache (no writes billed).
-    const automatic = seat.caching === 'automatic' && seat.measuredCacheShare !== undefined ? Math.round(s.promptTokens * seat.measuredCacheShare) : 0;
+    const automatic = seat.caching === 'automatic' && seat.measuredCacheShare !== undefined && !s.uncached ? Math.round(s.promptTokens * seat.measuredCacheShare) : 0;
     const uncached = s.promptTokens - cached - automatic;
     // Cache writes happen on the first calls of the game and after each
     // reflection; booking them all against the turn calls is close enough.
-    const writes = s.freshCache ? s.callsPerGame : Math.min(writesLeft, s.callsPerGame);
+    const writes = s.uncached ? 0 : s.freshCache ? s.callsPerGame : Math.min(writesLeft, s.callsPerGame);
     if (!s.freshCache) writesLeft -= writes;
     const reads = s.callsPerGame - writes;
     const perMillionTotal =

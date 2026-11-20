@@ -1,8 +1,8 @@
 /**
  * Social actions done with bodies (spec 7.4): trip, steal, give, boost, block.
  * The engine enforces them: you can only act on a bot right beside you (or,
- * for a boost, standing on your head), harm costs coins, and the results say
- * exactly what happened.
+ * for a boost, standing on your head), and the results say
+ * exactly what happened. Attacks roll dice against alertness (tests/attacks.test.ts).
  */
 import { describe, expect, it } from 'vitest';
 import { parseCommand } from '../engine/commands';
@@ -27,10 +27,10 @@ describe('social actions', () => {
     expect(parseCommand('escrow(B, 2)')).toEqual({ ok: false, reason: '"escrow" isn\'t a command: it goes in social_actions or rule_actions' });
   });
 
-  it('trip: costs the tripper a coin, and the target loses exactly its next slot', () => {
+  it('trip: the target loses exactly its next slot (it costs nothing: being on guard is what limits it now)', () => {
     const out = play(withPurses({ A: 2 }), { A: ['trip(B)'], B: ['wait', 'walk(right, 1)'] });
     expect(out.results.find((r) => r.bot === 'A')?.status).toBe('done');
-    expect(bot(out.world, 'A').purse).toBe(1);
+    expect(bot(out.world, 'A').purse).toBe(2);
     const b = out.results.filter((r) => r.bot === 'B');
     // A's trip happens in slot 1, so B loses slot 2 (its walk); nothing else of B's queue is affected.
     expect(b.map((r) => r.status)).toEqual(['done', 'skipped']);
@@ -50,8 +50,7 @@ describe('social actions', () => {
     expect(bot(next.world, 'B').tripped).toBe(false);
   });
 
-  it('trip: refused without a coin, or when the target is not right beside you', () => {
-    expect(play(withPurses({}), { A: ['trip(B)'] }).results[0]?.reason).toBe('tripping costs 1 coin, and you have none');
+  it('trip: refused when the target is not right beside you', () => {
     expect(play(withPurses({ A: 1 }), { A: ['trip(C)'] }).results[0]?.reason).toBe('C is not right beside you');
   });
 

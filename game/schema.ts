@@ -30,6 +30,8 @@ export const TurnReplySchema = z.object({
   rule_actions: z.array(RuleAction),
   social_actions: z.array(SocialAction),
   opinions: z.array(Opinion),
+  /** Heard by everyone at once, in any step (Ingram, 2026-11-20). Replies recorded before shouting existed have none. */
+  shout: z.string().default(''),
 });
 export type TurnReply = z.infer<typeof TurnReplySchema>;
 export type TurnField = keyof TurnReply;
@@ -51,6 +53,7 @@ export const TURN_JSON_SCHEMA = obj({
   rule_actions: { type: 'array', items: obj({ type: str, id: str, text: str, value: str }) },
   social_actions: { type: 'array', items: obj({ type: str, target: str, text: str, value: str, coins: num }) },
   opinions: { type: 'array', items: obj({ bot: str, trust: num, note: str }) },
+  shout: str,
 });
 
 export const ReflectionReplySchema = z.object({ notebook: z.string(), strategy: z.string() });
@@ -68,15 +71,25 @@ export const FinalReflectionSchema = z.object({
 export type FinalReflection = z.infer<typeof FinalReflectionSchema>;
 export const FINAL_REFLECTION_JSON_SCHEMA = obj({ notebook: str, strategy: str, next_name: str, note_to_ingram: str, message_to_ingram: str });
 
+/** A bot's introduction at a room's start, and its answer to the host's question (prompts/host.ts). */
+export const IntroReplySchema = z.object({ introduction: z.string(), answer: z.string() });
+export type IntroReply = z.infer<typeof IntroReplySchema>;
+export const INTRO_JSON_SCHEMA = obj({ introduction: str, answer: str });
+
+/** The silent judge's scores, -3 to +3 for each bot, each with a reason only Ingram reads. */
+export const JudgeReplySchema = z.object({ verdicts: z.array(z.object({ bot: z.string(), score: z.number(), reason: z.string() })) });
+export type JudgeReply = z.infer<typeof JudgeReplySchema>;
+export const JUDGE_JSON_SCHEMA = obj({ verdicts: { type: 'array', items: obj({ bot: str, score: num, reason: str }) } });
+
 export const DiaryReplySchema = z.object({ diary: z.string() });
 export type DiaryReply = z.infer<typeof DiaryReplySchema>;
 export const DIARY_JSON_SCHEMA = obj({ diary: str });
 
 /** The fields that count in each phase. Commit's commands are the only binding ones. */
 export const PHASE_FIELDS: Record<Phase, readonly TurnField[]> = {
-  declare: ['thought', 'say', 'whisper', 'orders', 'commands', 'rename', 'rule_actions', 'social_actions'],
-  talk: ['thought', 'say', 'whisper', 'orders', 'rename', 'rule_actions', 'social_actions'],
-  commit: ['thought', 'commands', 'rename', 'social_actions', 'opinions'],
+  declare: ['thought', 'say', 'whisper', 'orders', 'commands', 'rename', 'rule_actions', 'social_actions', 'shout'],
+  talk: ['thought', 'say', 'whisper', 'orders', 'rename', 'rule_actions', 'social_actions', 'shout'],
+  commit: ['thought', 'commands', 'rename', 'social_actions', 'opinions', 'shout'],
 };
 
 /** Which social actions count in which phase: the exile ballot is cast in secret, at commit. */
@@ -86,6 +99,7 @@ export const SOCIAL_PHASES: Record<string, readonly Phase[]> = {
   exile_vote: ['commit'],
   escrow: ['declare', 'talk', 'commit'],
   release: ['declare', 'talk', 'commit'],
+  look: ['declare', 'talk', 'commit'],
 };
 
 /** Scarce words make bots choose what matters (spec: "Cap speech at 2 messages and 60 words per message per phase"). */
@@ -108,6 +122,9 @@ export const LIMITS = {
   ruleActions: 3,
   socialActions: 3,
   opinionWords: 20,
+  shoutWords: 12,
+  introWords: 60,
+  judgeReasonWords: 40,
 } as const;
 
 export const EMPTY_TURN: TurnReply = {
@@ -120,6 +137,7 @@ export const EMPTY_TURN: TurnReply = {
   rule_actions: [],
   social_actions: [],
   opinions: [],
+  shout: '',
 };
 
 export type Parsed<T> = { ok: true; reply: T } | { ok: false; error: string };
@@ -141,6 +159,8 @@ export const parseTurnReply = (text: string) => parseWith(text, TurnReplySchema)
 export const parseReflectionReply = (text: string) => parseWith(text, ReflectionReplySchema);
 export const parseFinalReflection = (text: string) => parseWith(text, FinalReflectionSchema);
 export const parseDiaryReply = (text: string) => parseWith(text, DiaryReplySchema);
+export const parseIntroReply = (text: string) => parseWith(text, IntroReplySchema);
+export const parseJudgeReply = (text: string) => parseWith(text, JudgeReplySchema);
 
 /**
  * The words of a JSON string field from a reply that was cut off before it
@@ -182,6 +202,13 @@ export function partialStringField(text: string, key: string): string | null {
 export function salvageDiary(text: string): DiaryReply | null {
   const words = partialStringField(text, 'diary')?.trim() ?? '';
   return words.split(/\s+/).length >= 8 ? { diary: `${words.replace(/[\s,;:-]+$/, '')} …` } : null;
+}
+
+/** An introduction cut off by its output cap keeps what was written; its answer may be missing or partial. */
+export function salvageIntro(text: string): IntroReply | null {
+  const introduction = partialStringField(text, 'introduction')?.trim() ?? '';
+  if (introduction.split(/\s+/).length < 4) return null;
+  return { introduction, answer: partialStringField(text, 'answer')?.trim() ?? '' };
 }
 
 /** Fields that have something in them but don't count in this phase. */

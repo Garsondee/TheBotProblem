@@ -15,7 +15,7 @@
  * numbers on every machine (unlike Math.random, which can't be seeded).
  */
 
-export type StreamName = 'level' | 'stats' | 'roles' | 'rumours' | 'poisoning' | 'mock';
+export type StreamName = 'level' | 'stats' | 'roles' | 'rumours' | 'poisoning' | 'mock' | 'guard' | 'persona' | 'host';
 
 /** cyrb128: turns any text into four 32-bit seeds. */
 export function cyrb128(text: string): [number, number, number, number] {

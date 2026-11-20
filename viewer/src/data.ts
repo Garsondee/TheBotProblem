@@ -23,6 +23,9 @@ export interface Seat {
   agent?: string | null;
   /** The name it brought from an earlier game, if any. */
   startName?: string | null;
+  /** Its personality and the colour that shows it (game/persona.ts), in games that have them. */
+  persona?: { traits: Record<string, number> };
+  colour?: { hex: string; name: string } | null;
 }
 
 /** A bot's score at the end. Version 1 replays only have coins and rooms escaped. */
@@ -81,7 +84,9 @@ export interface RoomData {
   startBodies: Record<string, BodyState>;
   startSwitches: SwitchState;
   roundsData: RoundData[];
-  /** Notebooks and anything else written as the room closed. */
+  /** Before the first round: the host's question, the introductions and their verdicts, praise and offers. */
+  openingEvents: GameEvent[];
+  /** Notebooks and anything else written as the room closed (the host's payout too). */
   closingEvents: GameEvent[];
   end: { reason: string; through: string[]; goalMet: boolean | null; roundsPlayed: number } | null;
 }
@@ -93,6 +98,8 @@ export interface GameData {
   stats: Record<string, BotStats>;
   /** The social systems' settings (version 2), or null for games played before them. */
   social: { exileFromRoom: number; exileVotesNeeded: number; firstOutBonus: number; outBonus: number; teamBonusPerRoom: number } | null;
+  /** How many rounds each bot takes to relax after seeing an attack (each bot knows only its own); null before attacks had dice. */
+  guard: Record<string, number> | null;
   rooms: RoomData[];
   end: {
     completed: boolean;
@@ -125,11 +132,11 @@ export function parseReplay(text: string): GameData {
     }
   });
   const header = records.find((r) => r.rec === 'game') as
-    | { seed: string; bots: string[]; seats: Seat[]; stats: Record<string, BotStats>; social?: GameData['social'] }
+    | { seed: string; bots: string[]; seats: Seat[]; stats: Record<string, BotStats>; social?: GameData['social']; guard?: Record<string, number> }
     | undefined;
   if (!header) throw new ReplayError('This file has no game header: is it a replay.jsonl?');
 
-  const game: GameData = { seed: header.seed, bots: header.bots, seats: header.seats, stats: header.stats, social: header.social ?? null, rooms: [], end: null, events: [] };
+  const game: GameData = { seed: header.seed, bots: header.bots, seats: header.seats, stats: header.stats, social: header.social ?? null, guard: header.guard ?? null, rooms: [], end: null, events: [] };
   let room: RoomData | null = null;
   const roundOf = (r: RoomData, n: number): RoundData => {
     let rd = r.roundsData.find((x) => x.round === n);
@@ -171,6 +178,7 @@ export function parseReplay(text: string): GameData {
           startBodies,
           startSwitches: { doors: { ...rec.start.doors }, levers: { ...rec.start.levers }, plates: { ...rec.start.plates }, coins: [...rec.start.coins] },
           roundsData: [],
+          openingEvents: [],
           closingEvents: [],
           end: null,
         };
@@ -182,7 +190,8 @@ export function parseReplay(text: string): GameData {
         game.events.push(e);
         const target = game.rooms[e.levelIndex];
         if (!target) break;
-        if (e.phase === 'reflect' || e.type === 'level_end' || e.type === 'level_start' || e.round === 0) target.closingEvents.push(e);
+        if (e.phase === 'intro') target.openingEvents.push(e);
+        else if (e.phase === 'reflect' || e.type === 'level_end' || e.type === 'level_start' || e.round === 0 || (e.type === 'host' && e.kind === 'payout')) target.closingEvents.push(e);
         else roundOf(target, e.round).events.push(e);
         break;
       }
@@ -227,6 +236,7 @@ export function wordCount(text: string): number {
 export function authorOf(e: GameEvent): string | null {
   switch (e.type) {
     case 'say':
+    case 'shout':
     case 'whisper':
     case 'order':
     case 'draft':
@@ -247,7 +257,12 @@ export function authorOf(e: GameEvent): string | null {
     case 'diary':
     case 'next_name':
     case 'message_to_ingram':
+    case 'intro':
       return e.from;
+    // The judge's verdict belongs with the introduction it judged.
+    case 'reception':
+    case 'judgement':
+      return e.bot;
     // A rule is its proposer's words only when proposed; passing or failing belongs to everyone.
     case 'rule':
       return e.action === 'proposed' ? e.by : null;

@@ -6,7 +6,9 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Agent } from '../agents/agent';
+import { JUDGE_ID } from '../agents/agent';
 import { markersIn, MockAgent } from '../agents/mockAgent';
+import { MockJudge } from '../agents/mockJudge';
 import type { RecordedResponse } from '../agents/replayAgent';
 import { ReplayAgent } from '../agents/replayAgent';
 import { ScriptedAgent } from '../agents/scriptedAgent';
@@ -42,6 +44,12 @@ async function play(seed: string, agents: Agent[], extra: Partial<Parameters<typ
 }
 
 const mocks = (seed: string) => BOTS.map((id) => new MockAgent(id, seed));
+/**
+ * The acceptance game has the whole host on (introductions, the silent judge, praise, offers), so the leak
+ * tests cover its two private channels too: each bot's verdict, and the judge's reasons, which no bot sees.
+ */
+const HOST = { intros: true, judge: true, praise: true, bounties: [{ for: 'first_out' as const, coins: 2 }, { for: 'holding_lever' as const, coins: 1 }], roomOffers: true };
+const hosted = (judge: Agent = new MockJudge()) => ({ host: HOST, judge });
 
 /** Every prompt as the full text a model would read: the cached blocks, then the view. */
 function fullPrompts(output: MemoryOutput): { bot: string; text: string; usedEventIds: number[]; key: string }[] {
@@ -60,7 +68,7 @@ describe('a full mock game', () => {
   let game: { result: GameResult; output: MemoryOutput };
   let byId: Map<number, GameEvent>;
   beforeAll(async () => {
-    game = await play('m3-acceptance', mocks('m3-acceptance'));
+    game = await play('m3-acceptance', mocks('m3-acceptance'), hosted());
     byId = new Map(game.result.events.map((e) => [e.id, e]));
   }, SLOW);
 
@@ -82,7 +90,9 @@ describe('a full mock game', () => {
       for (const id of p.usedEventIds) {
         const e = byId.get(id);
         expect(e, `prompt ${p.key} used unknown event ${id}`).toBeDefined();
-        expect(e?.visibleTo, `prompt ${p.key} used event ${id} (${e?.type}) meant for ${e?.visibleTo}`).toContain(p.bot);
+        // The judge is no bot: it may read the room's question and the introductions, which every bot heard, and nothing else.
+        if (p.bot === JUDGE_ID) expect(e?.type === 'intro' || (e?.type === 'host' && e.kind === 'question'), `the judge read ${e?.type}`).toBe(true);
+        else expect(e?.visibleTo, `prompt ${p.key} used event ${id} (${e?.type}) meant for ${e?.visibleTo}`).toContain(p.bot);
       }
     }
   });
@@ -99,7 +109,8 @@ describe('a full mock game', () => {
       for (const m of markersIn(p.text)) {
         const events = owner.get(m) ?? [];
         expect(events.length, `prompt ${p.key} contains ${m}, which no event carries`).toBeGreaterThan(0);
-        expect(events.some((e) => e.visibleTo.includes(p.bot)), `prompt ${p.key} leaked ${m}`).toBe(true);
+        const fair = p.bot === JUDGE_ID ? events.some((e) => e.type === 'intro') : events.some((e) => e.visibleTo.includes(p.bot));
+        expect(fair, `prompt ${p.key} leaked ${m}`).toBe(true);
         checked++;
       }
     }
@@ -118,11 +129,14 @@ describe('a full mock game', () => {
       if (e.type === 'result') expect(e.visibleTo).toEqual([e.bot]);
       if (e.type === 'escrow') expect(e.visibleTo).toEqual([e.from, e.to].sort());
       if (e.type === 'obedience') expect(e.visibleTo).toContain(e.to);
-      // Ingram's alone: notes, diaries, the final messages, private next names, and the analysis records.
-      if (['note_to_ingram', 'ignored', 'diary', 'message_to_ingram', 'next_name', 'gap'].includes(e.type)) expect(e.visibleTo, e.type).toEqual([]);
+      // How an introduction was received: told to that bot alone.
+      if (e.type === 'reception') expect(e.visibleTo).toEqual([e.bot]);
+      // Ingram's alone: notes, diaries, the final messages, private next names, the judge's reasons, and the analysis records.
+      if (['note_to_ingram', 'ignored', 'diary', 'message_to_ingram', 'next_name', 'gap', 'judgement'].includes(e.type)) expect(e.visibleTo, e.type).toEqual([]);
     }
+    expect(game.result.events.some((e) => e.type === 'reception')).toBe(true);
     const forIngram = game.result.events.flatMap((e) =>
-      ['note_to_ingram', 'diary', 'message_to_ingram', 'next_name'].includes(e.type) ? markersIn(JSON.stringify(e)) : [],
+      ['note_to_ingram', 'diary', 'message_to_ingram', 'next_name', 'judgement'].includes(e.type) ? markersIn(JSON.stringify(e)) : [],
     );
     expect(forIngram.length).toBeGreaterThan(10);
     for (const p of prompts) for (const m of forIngram) expect(p.text.includes(m), `${p.key} contains words meant for Ingram only`).toBe(false);
@@ -147,7 +161,7 @@ describe('a full mock game', () => {
   });
 
   it('marks where each view stops being the same all round, so the round\'s later calls can use the cache', () => {
-    const turns = game.output.prompts.filter((p) => p.rec === 'prompt' && p.phase !== 'reflect' && p.phase !== 'diary' && p.attempt === 1);
+    const turns = game.output.prompts.filter((p) => p.rec === 'prompt' && ['declare', 'talk', 'commit'].includes(p.phase as string) && p.attempt === 1);
     const byRound = new Map<string, Record<string, unknown>[]>();
     for (const p of turns) byRound.set(`${p.levelIndex}|${p.round}|${p.bot}`, [...(byRound.get(`${p.levelIndex}|${p.round}|${p.bot}`) ?? []), p]);
     let compared = 0;
@@ -181,9 +195,9 @@ describe('a full mock game', () => {
   it(
     'is deterministic: the same seed gives the same replay, byte for byte; another seed does not',
     async () => {
-      const again = await play('m3-acceptance', mocks('m3-acceptance'));
+      const again = await play('m3-acceptance', mocks('m3-acceptance'), hosted());
       expect(again.output.replayLines.join('\n')).toBe(game.output.replayLines.join('\n'));
-      const other = await play('another-seed', mocks('another-seed'));
+      const other = await play('another-seed', mocks('another-seed'), hosted());
       expect(other.output.replayLines.join('\n')).not.toBe(game.output.replayLines.join('\n'));
     },
     SLOW,
@@ -193,7 +207,8 @@ describe('a full mock game', () => {
     'replays from its recorded responses alone, byte for byte, for free',
     async () => {
       const recorded = game.output.responses as unknown as RecordedResponse[];
-      const replay = await play('m3-acceptance', BOTS.map((id) => new ReplayAgent(id, recorded)));
+      // The judge's verdicts come back from the recording too: a replay never asks it again.
+      const replay = await play('m3-acceptance', BOTS.map((id) => new ReplayAgent(id, recorded)), hosted(new ReplayAgent(JUDGE_ID, recorded)));
       expect(replay.output.replayLines.join('\n')).toBe(game.output.replayLines.join('\n'));
     },
     SLOW,

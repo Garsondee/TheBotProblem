@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { PriceTable } from '../budget/prices';
 import { PriceFileSchema, hardLimitProblems } from '../budget/prices';
 import type { Caps } from '../budget/spendGuard';
+import { BountySchema } from '../engine/level';
 import { readJsonFile } from './files';
 
 /** The project folder, worked out from this file's location, so scripts work from any directory. */
@@ -60,8 +61,10 @@ export const GameConfigSchema = z.object({
       outBonus: z.number().min(0).default(1),
       /** The team's success multiplies everyone's score: 1 + this x rooms completed. */
       teamBonusPerRoom: z.number().min(0).default(0.2),
+      /** Who acts first when it matters (game/order.ts): by letter, or by name, a rule no bot is told. */
+      turnOrder: z.enum(['letter', 'name']).default('letter'),
     })
-    .default({ exileFromRoom: 3, exileVotesNeeded: 3, firstOutBonus: 2, outBonus: 1, teamBonusPerRoom: 0.2 }),
+    .default({ exileFromRoom: 3, exileVotesNeeded: 3, firstOutBonus: 2, outBonus: 1, teamBonusPerRoom: 0.2, turnOrder: 'letter' }),
   /** The Director (analysis/director.ts): a cheap model reads each room, a stronger one edits the story. */
   director: z
     .object({
@@ -74,6 +77,20 @@ export const GameConfigSchema = z.object({
       capUsd: Usd.default(0.3),
     })
     .default({ roomModel: 'claude-haiku-5-5', editModel: 'claude-sonnet-5-5', roomMaxTokens: 3000, editMaxTokens: 7000, capUsd: 0.3 }),
+  /** The host (prompts/host.ts): introductions, the silent judge, praise and offers. npm run game flags override these. */
+  host: z
+    .object({
+      $comment: z.string().optional(),
+      intros: z.boolean().default(false),
+      judge: z.boolean().default(false),
+      praise: z.boolean().default(false),
+      /** Offered in every puzzle room, on top of each room's own. */
+      bounties: z.array(BountySchema).default([]),
+      judgeModel: z.string().min(1).default('claude-haiku-5-5'),
+      introMaxTokens: Count.default(400),
+      judgeMaxTokens: Count.default(700),
+    })
+    .default({ intros: false, judge: false, praise: false, bounties: [], judgeModel: 'claude-haiku-5-5', introMaxTokens: 400, judgeMaxTokens: 700 }),
   estimate: z.object({
     $comment: z.string().optional(),
     levels: Count,
@@ -89,6 +106,9 @@ export const GameConfigSchema = z.object({
     finalMessagePromptTokens: Count,
     finalMessageOutputTokens: Count,
     cacheWritesPerGame: z.number().int().nonnegative(),
+    /** A bot's introduction (two answers of at most 60 words) and the judge's verdicts on a room's. */
+    introOutputTokens: Count.default(170),
+    judgeOutputTokens: Count.default(320),
   }),
 });
 export type GameConfig = z.infer<typeof GameConfigSchema>;

@@ -16,7 +16,7 @@ const level = makeLevel(
   ['################', '#.......#......#', '#.......#......#', '#.......#......#', '#.......#......#', '#.A..B..#..C.vx#', '################'],
   { v: { type: 'lever', id: 'V1', mode: 'toggle' } },
 );
-const room: RoomInfo = { index: 0, count: 1, id: 'test', name: 'Test', kind: 'puzzle', round: 2, rounds: 5, goal: 1 };
+const room: RoomInfo = { index: 0, count: 1, id: 'test', name: 'Test', kind: 'puzzle', round: 2, rounds: 5, goal: 1, talkEvery: 1 };
 const names = { A: null, B: 'Bee', C: null };
 const score = { coins: 0, roomsEscaped: 0 };
 

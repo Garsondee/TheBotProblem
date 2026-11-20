@@ -69,10 +69,12 @@ function candidates(bot: Bot, seen: Perception): string[] {
   if (bot.onLadder) return ['climb(up)', 'climb(down)'];
   if (!bot.grounded) return [];
   const out = ['walk_to_edge(left)', 'walk_to_edge(right)'];
-  for (const id of [...seen.bots, ...seen.crates, ...seen.doors, ...seen.plates, ...seen.levers, ...seen.exits, ...seen.coins]) {
+  for (const id of [...seen.bots, ...seen.crates, ...seen.doors, ...seen.plates, ...seen.levers, ...seen.exits, ...seen.coins, ...seen.ladders]) {
     out.push(`walk_to(${id})`);
   }
   out.push('climb(up)', 'climb(down)', 'drop', 'jump(up, run_up=0, hold=short)', 'jump(up, run_up=0, hold=full)');
+  // Over a bot right beside you (the menu keeps it only where the hop would work).
+  for (const id of seen.bots) out.push(`hop_over(${id})`);
   for (const runUp of [0, 1, 2, 3]) {
     for (const hold of ['short', 'full']) for (const dir of ['left', 'right']) out.push(`jump(${dir}, run_up=${runUp}, hold=${hold})`);
   }
