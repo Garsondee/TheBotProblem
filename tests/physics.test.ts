@@ -226,6 +226,11 @@ describe('switches', () => {
     });
     const pulled = play(startWorld(level), { A: ['pull_lever'], B: ['walk(right, 2)', 'hold_lever'] });
     expect(pulled.world.levers).toEqual({ V1: true, V2: true });
+    // Both changes are events, toggles included (the viewer and the witnesses need them).
+    expect(pulled.events.filter((e) => e.type === 'lever').map((e) => e.type === 'lever' && [e.lever, e.on, e.by])).toEqual([
+      ['V1', true, 'A'],
+      ['V2', true, 'B'],
+    ]);
     const letGo = play(pulled.world, { B: ['walk(left, 1)'] });
     expect(letGo.world.levers.V2).toBe(false);
     expect(play(startWorld(level), { A: ['hold_lever'] }).results[0]?.reason).toMatch(/flips: use pull_lever/);

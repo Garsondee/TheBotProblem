@@ -171,7 +171,15 @@ export function resolvePhase(
         stopped.add(bot.id);
         continue;
       }
+      // A toggle lever flips the moment it is pulled, inside startController, so the step
+      // loop below never sees it change: record the flip here, at this slot's first step.
+      const leversBefore = parsed.command.kind === 'pull_lever' ? { ...world.levers } : null;
       const c = startController(world, bot, parsed.command);
+      if (leversBefore) {
+        for (const [id, on] of Object.entries(world.levers)) {
+          if (leversBefore[id] !== on) events.push({ step: world.step + 1, type: 'lever', lever: id, on, by: bot.id });
+        }
+      }
       running.push({ c, text, from: base.from, startStep: world.step });
     }
     if (!anyCommand) break;

@@ -30,6 +30,7 @@ Run these in the project folder. All are free except `format-test` and a paid `g
 | `npm run prices` | Fetches today's OpenRouter prices into `config/openrouter-prices.json`. |
 | `npm run levels` | Shows every level as a picture, plays its solution command by command, and checks it: extreme hidden stats, the "no single bot can finish" search, and an identical trace from the same seed. Add `-- --level L2` for one level, `-- --brief` for the summary. |
 | `npm run format-test` | Milestone 2's test: three models answer questions about one scene in three view formats, and the answers are scored. **Costs real credit (about $0.05).** Add `-- --dry-run` for the estimate first; `-- --rescore runs/<folder>` re-scores a recorded run for free. |
+| `npm run view` | **Watch recorded games** in your browser: pick one from the list. Free. Space plays and pauses, the arrows step, Shift+arrows skip a round, T cycles the thoughts, W shows the wiring. |
 | `npm run game -- --mock` | A whole free game, every bot played by the seeded mock player. `-- --scripted` instead plays each level's own solution, so everyone gets out. |
 | `npm run game` | **A paid game** with the cast in `config/cast.json`. It plays a free mock game first to measure the prompts, prints the estimate, and waits for you to type `yes`. `-- --dry-run` stops after the estimate. `-- --levels P0,L1` picks rooms, `-- --max-rounds 2` shortens them, `-- --run-cap 0.50` sets this run's cap. Results go to `runs/<time>-game/`; start with `summary.md`. |
 | `npm test` | Runs every test. `npm run check` also type-checks. |
@@ -45,7 +46,7 @@ Run these in the project folder. All are free except `format-test` and a paid `g
 | `engine/` | Physics, commands, levels, line of sight, the move menu, the solution validator. Pure code with no file access, so the viewer can use it too | 1–3 (done) |
 | `agents/`, `prompts/` | The players (mock, scripted, replay, Claude and OpenRouter) and the rulebook they're given | 2–3 (done) |
 | `game/` | Turn loop, event log with audiences, view-builder, witnesses, reply checking, run summary | 3 (done) |
-| `viewer/` | The browser replay viewer | 4 |
+| `viewer/` | The browser replay viewer (Vite, canvas for the world, HTML for the words) | 4 (done) |
 | `analysis/`, `voice/` | Highlights and voices | 7 |
 | `runs/` | One folder per run: summary, replay, every prompt and reply, state, ledger (git-ignored) | |
 | `spend/` | Lifetime spend record and the paid-run lock (git-ignored, keep it) | |

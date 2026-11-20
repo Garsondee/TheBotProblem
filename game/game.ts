@@ -335,7 +335,19 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
       { type: 'level_start', name: level.name, kind: level.kind, rounds: roundsHere, goal: level.goal?.botsThrough ?? null },
       botIds,
     );
-    output.replay({ rec: 'level', index: li, id: level.id, name: level.name, kind: level.kind, rounds: roundsHere, goal: level.goal, map: level.map, start: worldState(world) });
+    output.replay({
+      rec: 'level',
+      index: li,
+      id: level.id,
+      name: level.name,
+      kind: level.kind,
+      rounds: roundsHere,
+      goal: level.goal,
+      map: level.map,
+      // The whole level definition, so the viewer can draw it even if the level file changes later.
+      file: level.file,
+      start: worldState(world),
+    });
     flushEvents();
     say(`Room ${li + 1}/${opts.levels.length}: ${level.name} (${level.kind}, up to ${roundsHere} rounds)`);
 

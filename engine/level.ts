@@ -102,6 +102,8 @@ export interface Level {
   solution: Record<string, string[]>[];
   /** The picture from the file, for display. */
   map: string[];
+  /** The checked file this level came from. Replays carry it, so a recording stays watchable when level files change. */
+  file: LevelFile;
 }
 
 /** The tile at a cell. Everything outside the level counts as solid, so the edges are always walls. */
@@ -142,6 +144,7 @@ export function parseLevel(file: LevelFile): Level {
     goal: file.goal ?? null,
     solution: file.solution,
     map: file.map,
+    file,
   };
   const entityCells = new Set<number>();
   const charCount = new Map<string, number>();

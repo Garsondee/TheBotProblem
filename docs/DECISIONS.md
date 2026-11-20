@@ -2,6 +2,26 @@
 
 Newest first within each date. Each entry says what was decided or found, and why. The tiebreaker for anything the spec doesn't cover is the spec's own: "choose the option that keeps the experiment honest".
 
+## 2026-11-20: milestone 4 (the viewer)
+
+**Polish now, not later.** The spec put graphical polish off "until the experiment works". Ingram asked for the opposite on 2026-11-20: "make it attractive to watch ... an elegant looking visually simple platformer ... a complete fresh build", "paying special attention to making it clear which bot is which, making conversations and thoughts easy to follow and understand who is talking". Her words are the newer rule.
+
+**Who is who, four ways at once.** Colour alone fails for colour-blind viewers, so each bot also has its letter on its chest, its own antenna shape (circle, triangle, diamond, square, star) and a name tag. Its colour follows it everywhere: bubble, transcript, cast card, timeline marks. Name tags never overlap: crowded bots' tags step up, with a faint leader line to their bot.
+
+**Talk is paced, physics is real time.** A game's talk happens in phases, not in time, so the viewer gives it time: one bot at a time, on screen for about 0.27 s a word (a comfortable reading pace), between 1.8 and 16 s, under a soft spotlight. A short title opens each step (Plans, Talk, Secret commitments). The physics plays in real time: a second on screen is a second in the world. The first real game runs about 29 minutes at 1×, with thoughts at commit; 2× halves it.
+
+**Thoughts at commit by default.** Showing every thought adds about a quarter to the running time; the commit thought is the one that explains what a bot is about to do. "All" and "off" are one click away. The transcript keeps every thought either way.
+
+**Text in HTML, the world on canvas.** The scene is drawn on a canvas, and the terrain and sky are drawn once per room and reused. Words are HTML laid over it (real font rendering, wrapping, transitions), built once per beat and only moved each frame.
+
+**Motion rules** (from the design-engineering guidance): only transform and opacity animate, with strong ease-out curves. Bubbles grow from their speaker, from 96% size, never from nothing, and leave faster than they arrive. Keyboard shortcuts act instantly. Hover effects only on real pointers. Reduced-motion is respected.
+
+**Exactness over guesswork.** Positions are slid between recorded physics steps, never extrapolated, and switches change at the recorded step. A test checks that every rebuilt position and switch equals the game's own saved state after every round. A seek snaps everything and clears the dust, so scrubbing never leaves stray effects.
+
+**Two recording changes, so replays are complete.** Each replay now carries each room's full level definition, so it stays watchable if a level file changes later. Pulling a toggle lever is now an event: it was the one switch change with no event, so the viewer couldn't show it.
+
+**No spoilers.** The run picker shows when a game was played, its kind and its rooms, never the outcome. The first real game was played while the viewer was built, and was checked only for cost and for parsing, so Ingram can see it first.
+
 ## 2026-11-20: milestone 3 (built)
 
 **Results say what a bot landed on.** "landed on bot E at x=7.35, y=3.50", not just the position. In the first real game, two bots landed on heads (y=3.50) and guessed they were on a crate (y=3.00). A body feels what it lands on, so saying it tells no more than the bot would know. Witnesses get it too: "D jumped at ... and landed on crate C1 at ...".

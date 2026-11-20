@@ -10,7 +10,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p viewer",
     "check": "npm run typecheck && npm run test",
     "keys": "tsx harness/cli/keys.ts",
     "check-env": "tsx harness/cli/checkEnv.ts",
@@ -19,12 +19,16 @@
     "fake-run": "tsx harness/cli/fakeRun.ts",
     "levels": "tsx harness/cli/levels.ts",
     "format-test": "tsx harness/cli/formatTest.ts",
-    "game": "tsx harness/cli/game.ts"
+    "game": "tsx harness/cli/game.ts",
+    "view": "vite --config viewer/vite.config.ts --open"
   },
   "devDependencies": {
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/nunito": "^5.3.0",
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
+    "vite": "^8.3.8",
     "vitest": "^5.1.1"
   },
   "dependencies": {

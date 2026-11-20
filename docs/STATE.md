@@ -10,11 +10,22 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 | 1 | Physics engine, level format, line of sight, solution-script validator, 3 levels | **Built and tested**, on GitHub. Ingram: "I believe it's tested and up and running". | No | `npm run levels` |
 | 2 | Interface format test | **Built and tested**, paid run done ($0.058). Winner: numbers plus affordances. Not yet seen by Ingram. | ~$0.10 | [FORMAT-TEST.md](FORMAT-TEST.md) |
 | 3 | Turn loop, event log, view-builder, response schema, full mock game, leak test | **Built and tested**: the full mock game and the leak test pass; two tiny real games played ($0.023). Ready for the first real run. Not yet seen by Ingram. | No (smoke tests $0.023) | `npm run game -- --mock`, `npm run game -- --scripted`, `npm run game -- --levels P0,L1 --dry-run` |
-| 4 | Viewer: rendering, bubbles, full mode, timeline, spectator overlay | Not started | No | |
+| 4 | Viewer: rendering, bubbles, full mode, timeline, spectator overlay | **Built and tested**: mock and scripted games play back smoothly in the browser, checked by eye and by tests. The first real game is recorded and waiting, unwatched. Not yet seen by Ingram. | No | `npm run view` |
 | 5 | Text-only social pilot with real models | Not started | ~$0.30 | |
 | 6 | Roles, deception, rumours, hidden stats, pressures, tension controller, measurement | Not started | ~$1.50 | |
 | 7 | Highlights, Kokoro voices, highlights mode, diary scenes, final messages | Not started | ~$0.10 | |
 | 8 | Folklore, forks, persona evolution | Not started | ~$0.70 a game | |
+
+## Milestone 4: what exists
+
+- **The viewer** (`npm run view`, [viewer/](../viewer)): opens a page in the browser listing the recorded games (what kind, which rooms; never how they went). Pick one to watch it. Watching costs nothing.
+- **The look**: a calm dusk scene, dark terrain with moonlit edges, and five bright bots, each told apart four ways: its colour, its letter, its antenna shape and its name tag. Doors slide, plates sink, levers tip, coins bob, the exit glows. Bots lean, stretch, squash, blink and kick up dust.
+- **Conversations**: one bot talks at a time, under a soft spotlight, in a bubble joined to it, with its name at the top. Whispers are dashed and draw a dashed line to the listener; orders draw an arrow. Plans and commitments show as commands. Thoughts are clouds: at commit by default, or always, or off. A name comes with its note to Ingram.
+- **The transcript** beside the stage holds the whole conversation, grouped by room, round and step. It follows the playback, and clicking any line jumps there. After each round, a short "what happened". At each room's end, each bot's notebook.
+- **Controls**: play and pause, step back and forward, skip a round (Shift+arrows), speeds from 0.5× to 4×, and a timeline with the rooms and rounds on it.
+- **Spectator tools**: hidden stats; "see through one bot's eyes", which shades what it couldn't see, using its true sight range; wiring, which shows what opens what.
+- **Tested**: rebuilt positions and switches match the game's own saved state after every round of a scripted game; timings, beat lookup and smooth sliding between recorded steps. The first real game parses and every moment of it rebuilds without error (checked without looking at what happened).
+- **The first real game**: practice room plus Hold the Door, played while the viewer was built. $0.088, a third of the estimate. Recorded and unwatched.
 
 ## Milestone 3: what exists
 
@@ -27,7 +38,7 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 - **`npm run game`**: free mock or scripted games; paid games print an estimate from real prompts and wait for a yes. Every run folder holds summary.md, replay.jsonl, responses.jsonl, prompts.jsonl, state/ and, for paid games, ledger.json.
 - **Tested**: the full mock game (practice room plus six puzzles); the leak test (every event behind every prompt was visible to that bot, and every marked text in a prompt traces back to an event that bot may see); determinism (same seed, same replay, byte for byte); a replay from recorded responses alone; a game stopped cleanly by its cap.
 - **Seen with real models**: two small practice-room games (1 and 2 rounds). The bots split up the testing between them, whispered, chained moves, and measured their own jump heights from the results to within 0.01 of their true hidden values.
-- **Spent so far, lifetime:** about $0.03 of Claude credit and $0.05 of OpenRouter credit.
+- **Spent so far, lifetime** (from the spend record): $0.074 of Claude credit and $0.094 of OpenRouter credit, the first real game included.
 
 ## Milestone 2: what exists
 
