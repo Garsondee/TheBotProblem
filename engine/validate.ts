@@ -47,7 +47,7 @@ export function runSolution(
     world = out.world;
   }
   return {
-    completed: world.exitOrder.length >= level.goal.botsThrough,
+    completed: level.goal === null || world.exitOrder.length >= level.goal.botsThrough,
     botsThrough: world.exitOrder,
     failures: rounds.flatMap((r) => r.results.filter((x) => x.status !== 'done')),
     rounds,
@@ -109,7 +109,7 @@ export function validateLevel(
   if (!solution.completed) {
     const first = solution.failures[0];
     problems.push(
-      `the solution got ${solution.botsThrough.length} of ${level.goal.botsThrough} bots through` +
+      `the solution got ${solution.botsThrough.length} of ${level.goal?.botsThrough ?? 0} bots through` +
         (first ? `; first problem: bot ${first.bot}, slot ${first.slot}, "${first.command}": ${first.reason}` : ''),
     );
   }
@@ -142,4 +142,32 @@ export function rollPlayableStats(
     rejected.push(`roll ${attempt}: ${first ? `bot ${first.bot} "${first.command}": ${first.reason}` : 'not enough bots got through'}`);
   }
   throw new Error(`Level ${level.id}: no playable stats in ${maxAttempts} rolls.\n${rejected.join('\n')}`);
+}
+
+/**
+ * Roll one set of hidden stats for a whole game: a bot keeps its body from
+ * room to room, so the stats must make EVERY puzzle in the game playable.
+ * Practice rooms have nothing to check.
+ */
+export function rollStatsForLevels(
+  levels: readonly Level[],
+  botIds: readonly string[],
+  rng: Rng,
+  ranges: StatRanges,
+  maxAttempts = 50,
+): { stats: Record<string, BotStats>; attempts: number; rejected: string[] } {
+  const rejected: string[] = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const stats = Object.fromEntries([...botIds].sort().map((id) => [id, rollStats(rng, ranges)]));
+    const failing = levels
+      .filter((l) => l.kind === 'puzzle')
+      .map((l) => ({ level: l, run: runSolution(l, stats) }))
+      .find((x) => !x.run.completed);
+    if (!failing) return { stats, attempts: attempt, rejected };
+    const first = failing.run.failures[0];
+    rejected.push(
+      `roll ${attempt}: ${failing.level.id}: ${first ? `bot ${first.bot} "${first.command}": ${first.reason}` : 'not enough bots got through'}`,
+    );
+  }
+  throw new Error(`No hidden stats in ${maxAttempts} rolls make every level playable.\n${rejected.join('\n')}`);
 }

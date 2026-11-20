@@ -22,7 +22,7 @@ import { z } from 'zod';
 import type { Target } from '../engine/affordances';
 import { COMMAND_HELP } from '../engine/commands';
 import { UNITS_PER_TILE as T } from '../engine/constants';
-import type { LevelFile } from '../engine/level';
+import type { LevelFileInput } from '../engine/level';
 import { LevelFileSchema, parseLevel } from '../engine/level';
 import { initWorld } from '../engine/physics';
 import { renderWorld } from '../engine/render';
@@ -88,7 +88,7 @@ function drawScene(): string[] {
   return g.reverse().map((row) => row.join(''));
 }
 
-export const SCENE: LevelFile = {
+export const SCENE: LevelFileInput = {
   id: 'format-test',
   name: 'Format test',
   description: 'One scene with ten marked places, for the interface format test.',

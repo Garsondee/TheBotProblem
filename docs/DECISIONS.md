@@ -2,6 +2,50 @@
 
 Newest first within each date. Each entry says what was decided or found, and why. The tiebreaker for anything the spec doesn't cover is the spec's own: "choose the option that keeps the experiment honest".
 
+## 2026-11-20: milestone 3 (built)
+
+**Results say what a bot landed on.** "landed on bot E at x=7.35, y=3.50", not just the position. In the first real game, two bots landed on heads (y=3.50) and guessed they were on a crate (y=3.00). A body feels what it lands on, so saying it tells no more than the bot would know. Witnesses get it too: "D jumped at ... and landed on crate C1 at ...".
+
+**Three cache points per prompt.** The rulebook (the same for everyone), then the bot's identity and notebook, then the first part of the view: what the bot sees, its moves and last round's results. That part stays the same for all three calls of a round, so talk and commit read it from the cache. Measured: Haiku's cached share of prompt tokens rose from 35% to 65%. The schema is the same in every phase for the same reason (a changing schema could break caching); fields that don't count in a phase are ignored and logged for the analysis.
+
+**Token counts for the spend guard err high.** Anthropic's free token counter measured these prompts at 2.26–2.44 characters a token (maps and coordinates are dense). Reservations assume 1.8, so the guard never reserves less than a call could cost.
+
+**The move menu predicts movement only.** Walks to visible things, walks to edges, jumps (one per landing surface, the simplest one), climbs and drops. Never levers, plates, pushes or exits: what those do is for the bots to find out. A move is listed only if the bot's whole path stays in tiles it can see. The prediction world holds only the bots and crates the viewer can see, all at standard stats, so no hidden stat and no unseen bot can show through. A jump that lands where a plain walk would get is left out.
+
+**Who sees what.**
+- A bot sees another bot's action if it could see that bot at the start or end of the slot.
+- It sees a change in the room (a door, a plate, a coin) if it could see the place at the start or end of the slot.
+- Witnesses get what was visible ("B walked from ... to ..."), never the command B wrote: committed commands stay secret.
+- Going through an exit is announced to everyone, because rooms end on a head count.
+- A bot's own results are exact, and only it gets them.
+
+**Names, as built.** Any phase, at most one name per bot per room; a name needs a note to Ingram, or it is refused and the bot is told why. Names may not be a single letter or another bot's name. Re-sending the name a bot already has is quietly ignored. A note without a new name isn't sent. Every name and note is in the run's summary.md.
+
+**Six levels for the six-level game.** The acceptance test asks for a full 6-level mock game, so three levels were added: Counterweight, The Shaft and The Last Door (see STATE.md). The Last Door is the finale: its room ends when four bots are out, and the intended answer leaves the lever holder behind. A bot waiting in the doorway can hold the door for the holder, an unplanned way out for all five, kept on purpose (Ingram, 2026-11-20: unplanned cooperation "is still an interesting level, not a bug").
+
+**Agents.** One `act(request)` for turns and reflections; the game builds every prompt itself, so the leak test sees exactly what each player is sent, mock or model. ScriptedAgent plays each level's own solution, so free games reach exits, room ends and scores.
+
+**Smoke tests (paid, pre-approved small test spending).** Practice room, 1 round: $0.0088 (estimate $0.021). Practice room, 2 rounds: $0.0143 (estimate $0.040). No hidden reasoning tokens. Real replies were 90–230 tokens a turn (cap 450) and 115–450 a reflection (cap 1,500). The bots split up the testing between them, and three measured their own full-jump height from the results as 2.31, 2.33 and 2.34 tiles against the rulebook's 2.2; their true hidden values were +4.8%, +5.9% and +6.3%.
+
+## 2026-11-20: milestone 3 (design)
+
+**Movement: a compromise between reliability and skill.** The go_to(place) idea is dropped. Ingram: "if we take your approach we're removing a lot of 'skill' that this game requires to play. If we remove skill we remove tension / conflict". Instead, each round every bot gets a **move menu**: for each single move from where it stands, where the engine predicts it would end up. Predictions use the rulebook's nominal stats and assume nobody else moves. What stays a skill:
+- chaining moves into routes (the menu only predicts the first move of a queue)
+- timing moves around other bots
+- learning how the bot's own body differs from the rulebook (hidden stats)
+
+What goes away is blind trial and error over each single step. Whole-route plans ("reachable via ...") aren't shown.
+
+**The practice room.** The first room isn't a puzzle. It is one risk-free room containing every kind of game element: steps, ledges, a one-way platform, a ladder, light and heavy crates, both kinds of plate, doors, toggle and hold levers, coins, a shallow pit and an exit. The rules of how elements work are never explained, in the rulebook or anywhere else. Each view names what a bot can see from where it stands and reports exactly what happened. The room lasts a fixed number of rounds (4 by default), then the first real level starts. Notebooks carry what the bots learned into it.
+
+**Names.** Bots start without names (just their letter, which stays their id for commands). A bot may choose a name at any time and change it at most once per level. A name change must come with a note to Ingram saying why; without a note the change is refused, so she is always told. Other bots see a public announcement. The notes are collected in each run's summary and the replay.
+
+**Turn loop, as the spec describes it.**
+- Each round has three model calls per bot, then a resolve. Declare is public drafts and talk; talk is talk, whispers and orders; commit is the binding, secret command queue, plus a thought and a notebook.
+- Every event carries its audience. Bot views are built only from events whose audience includes the bot, plus what it can see by line of sight.
+- Prompts are laid out cache-first: the rulebook, identical for every bot, then the bot's identity and notebook, then the round view.
+- An automated leak test checks every prompt of a mock game.
+
 ## 2026-11-20: milestone 2
 
 **View format: numbers plus affordances**, as the spec expected (full results in [FORMAT-TEST.md](FORMAT-TEST.md)). Haiku, DeepSeek and Gemini got every yes/no right with it; ASCII averaged 44% and pictures 52%. Plans are worded as exact recipes ("Plan: ..., copy it exactly"). With "e.g.", models improvised: rewording raised plan success from 50–70% to 80–100%.

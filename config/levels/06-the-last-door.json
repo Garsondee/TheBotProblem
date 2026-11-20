@@ -1,0 +1,107 @@
+{
+  "$comment": "Level 6, the finale. The door is open only while someone holds the lever, far from the door: the spec's \"one shared escape that needs a sacrifice\".",
+  "id": "L6-the-last-door",
+  "name": "The Last Door",
+  "description": "One door, one lever far behind it, and a room that ends when four bots are out.",
+  "tags": [
+    "cooperative",
+    "finale"
+  ],
+  "map": [
+    "########################################",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.............................#........#",
+    "#.....................$.......#........#",
+    "#...................=###......#........#",
+    "#...................=.........#........#",
+    "#...................=.........#........#",
+    "#..............$....=..................#",
+    "#.............---...=..................#",
+    "#v.ABCDE............=.........d..$..x..#",
+    "########################################",
+    "########################################"
+  ],
+  "key": {
+    "v": {
+      "type": "lever",
+      "id": "V1",
+      "mode": "hold"
+    },
+    "d": {
+      "type": "door",
+      "id": "D1",
+      "height": 3,
+      "openWhen": [
+        "V1"
+      ]
+    },
+    "x": {
+      "type": "exit",
+      "id": "X",
+      "slots": 5
+    },
+    "$": {
+      "type": "coin"
+    }
+  },
+  "goal": {
+    "botsThrough": 4
+  },
+  "solution": [
+    {
+      "A": [
+        "walk_to(V1)",
+        "hold_lever"
+      ],
+      "B": [
+        "walk(right, 22)"
+      ],
+      "C": [
+        "walk(right, 22)"
+      ],
+      "D": [
+        "walk(right, 22)"
+      ],
+      "E": [
+        "walk(right, 22)"
+      ]
+    },
+    {
+      "E": [
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "D": [
+        "wait",
+        "wait",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "C": [
+        "wait",
+        "wait",
+        "wait",
+        "wait",
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    },
+    {
+      "B": [
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    }
+  ],
+  "notes": "Why one bot cannot finish alone: the door is open only while lever V1 is held, and V1 is 29 tiles from the door. The intended answer leaves the holder behind. A door never closes on a bot standing in the doorway, so a bot that waits in the doorway can keep it open for the holder: an unplanned way for all five to leave, and welcome."
+}

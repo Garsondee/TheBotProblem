@@ -20,16 +20,46 @@ import { makeLevel } from './engineHelpers';
 
 const ranges = loadGameConfig().hiddenStats;
 const levels = loadLevels();
+const puzzles = levels.filter((l) => l.kind === 'puzzle');
 const SLOW = 120_000;
 const everyone = (level: Level, s: BotStats) => Object.fromEntries(Object.keys(level.spawns).map((id) => [id, s]));
+const levelOne = () => {
+  const l1 = levels.find((l) => l.id === 'L1-hold-the-door');
+  if (!l1) throw new Error('level 1 is missing');
+  return l1;
+};
 
 describe('the levels in config/levels', () => {
-  it('load, and there are at least three', () => {
-    expect(levels.length).toBeGreaterThanOrEqual(3);
-    expect(levels.map((l) => l.id)).toEqual([...levels.map((l) => l.id)].sort());
+  it('load: a practice room first, then at least six puzzles, in play order', () => {
+    expect(levels[0]?.kind).toBe('practice');
+    expect(puzzles.length).toBeGreaterThanOrEqual(6);
+    expect(puzzles.map((l) => l.id)).toEqual([...puzzles.map((l) => l.id)].sort());
   });
 
-  for (const level of levels) {
+  describe('the practice room', () => {
+    const room = levels[0] as Level;
+    it('has no goal and no solution: it just lasts its rounds', () => {
+      expect(room.goal).toBeNull();
+      expect(room.solution).toEqual([]);
+      expect(room.rounds).toBeGreaterThanOrEqual(1);
+    });
+
+    it('has one of every kind of element, so there is everything to discover', () => {
+      const tiles = new Set(room.tiles);
+      expect([...tiles].sort()).toEqual([0, 1, 2, 3]); // empty, solid, one-way platform, ladder
+      expect(room.crates.length).toBeGreaterThanOrEqual(2); // one light, one too heavy for one bot
+      expect(room.crates.some((c) => c.weight > 1150)).toBe(true);
+      expect(room.crates.some((c) => c.weight < 850)).toBe(true);
+      expect(room.plates.some((p) => p.minBots !== null)).toBe(true);
+      expect(room.plates.some((p) => p.minWeight !== null)).toBe(true);
+      expect(room.levers.map((l) => l.mode).sort()).toEqual(['hold', 'toggle']);
+      expect(room.doors.length).toBeGreaterThanOrEqual(1);
+      expect(room.coins.length).toBeGreaterThanOrEqual(1);
+      expect(room.exits.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  for (const level of puzzles) {
     describe(level.id, () => {
       it('is finished by its solution with nominal stats', () => {
         const run = runSolution(level, everyone(level, NOMINAL_STATS));
@@ -89,7 +119,7 @@ describe('the levels in config/levels', () => {
   }
 
   it('draws level 1 the way its file draws it', () => {
-    const l1 = levels[0] as Level;
+    const l1 = levelOne();
     const rows = renderWorld(initWorld(l1, everyone(l1, NOMINAL_STATS)));
     expect(rows.at(-2)).toBe('#pABCDE...$.........|..l............X..#');
   });
@@ -97,7 +127,7 @@ describe('the levels in config/levels', () => {
 
 describe('the validator', () => {
   it('rejects a level whose solution fails, and says where', () => {
-    const l1 = levels[0] as Level;
+    const l1 = levelOne();
     const broken: Level = { ...l1, solution: [{ ...l1.solution[0], B: ['walk(right, 20)'] }, ...l1.solution.slice(1)] }; // nobody pulls the lever
     const report = validateLevel(broken, everyone(broken, NOMINAL_STATS), ranges);
     expect(report.valid).toBe(false);

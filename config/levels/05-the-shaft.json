@@ -1,0 +1,114 @@
+{
+  "$comment": "Level 5. The ladder starts out of reach; something has to be put under it.",
+  "id": "L5-the-shaft",
+  "name": "The Shaft",
+  "description": "A ladder that starts too high to grab, a heavy crate, and the exit on top of a tall block.",
+  "tags": [
+    "cooperative"
+  ],
+  "map": [
+    "########################################",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#......................................#",
+    "#.........................$...$.....x..#",
+    "#...................=###################",
+    "#...................=###################",
+    "#...................=###################",
+    "#...................=###################",
+    "#...................=###################",
+    "#...................=###################",
+    "#...................=###################",
+    "#...................=###################",
+    "#....................###################",
+    "#.ABCDE...c....$.....###################",
+    "########################################",
+    "########################################"
+  ],
+  "key": {
+    "c": {
+      "type": "crate",
+      "id": "C1",
+      "weight": 1.4
+    },
+    "x": {
+      "type": "exit",
+      "id": "X",
+      "slots": 5
+    },
+    "$": {
+      "type": "coin"
+    }
+  },
+  "goal": {
+    "botsThrough": 5
+  },
+  "solution": [
+    {
+      "E": [
+        "walk_to(C1)",
+        "wait",
+        "push(right, 10)",
+        "jump(right, run_up=0, hold=full)",
+        "climb(up)",
+        "walk_to(X)"
+      ],
+      "D": [
+        "wait",
+        "walk_to(E)",
+        "push(right, 10)"
+      ]
+    },
+    {
+      "E": [
+        "enter_exit"
+      ],
+      "D": [
+        "walk(right, 0.75)",
+        "jump(right, run_up=0, hold=full)",
+        "climb(up)",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "C": [
+        "wait",
+        "wait",
+        "walk_to(C1)",
+        "jump(right, run_up=0, hold=full)",
+        "climb(up)",
+        "walk_to(X)"
+      ]
+    },
+    {
+      "C": [
+        "enter_exit"
+      ],
+      "B": [
+        "walk_to(C1)",
+        "jump(right, run_up=0, hold=full)",
+        "climb(up)",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "A": [
+        "wait",
+        "wait",
+        "walk_to(C1)",
+        "jump(right, run_up=0, hold=full)",
+        "climb(up)",
+        "walk_to(X)"
+      ]
+    },
+    {
+      "A": [
+        "enter_exit"
+      ]
+    }
+  ],
+  "notes": "Why one bot cannot finish alone: the ladder starts 2 tiles above the floor, so a bot must stand on something to grab it, and the crate weighs 1.40 (the strongest possible bot has 1.15). Pushed against the block, the crate is a step for everyone. Standing on another bot works too, but then the last bot has nothing to stand on."
+}

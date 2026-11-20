@@ -45,9 +45,14 @@ function corners(): BotStats[] {
 for (const level of levels) {
   const ids = Object.keys(level.spawns).sort();
   const everyone = (s: BotStats) => Object.fromEntries(ids.map((id) => [id, s]));
-  say(`== ${level.id}: ${level.name}${level.cooperative ? ' (cooperative)' : ''}`);
+  say(`== ${level.id}: ${level.name}${level.cooperative ? ' (cooperative)' : ''}${level.kind === 'practice' ? ` (practice room, ${level.rounds} rounds)` : ''}`);
   say(`   ${level.description}`);
   if (!values.brief) for (const row of renderWorld(initWorld(level, everyone(NOMINAL_STATS)))) say(`   ${row}`);
+  if (level.kind === 'practice') {
+    say('   Practice room: nothing to solve, so there is no solution to check. It loads, and that is all it needs.');
+    say();
+    continue;
+  }
 
   // 1. The solution with nominal stats, command by command.
   const run = runSolution(level, everyone(NOMINAL_STATS));

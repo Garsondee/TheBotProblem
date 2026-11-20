@@ -1,0 +1,111 @@
+{
+  "$comment": "Level 4. Two bots must weigh down the plate; someone inside must hold the lever so they can follow.",
+  "id": "L4-counterweight",
+  "name": "Counterweight",
+  "description": "A door that opens for two bots on a plate, or while someone on the far side holds a lever.",
+  "tags": [
+    "cooperative"
+  ],
+  "map": [
+    "########################################",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#.......................#..............#",
+    "#..........$...........................#",
+    "#.........---..........................#",
+    "#.ABCDE.......p.........d..$...x.....v.#",
+    "########################################",
+    "########################################"
+  ],
+  "key": {
+    "p": {
+      "type": "plate",
+      "id": "P1",
+      "width": 2,
+      "minBots": 2
+    },
+    "d": {
+      "type": "door",
+      "id": "D1",
+      "height": 3,
+      "openWhen": [
+        "P1",
+        "V1"
+      ]
+    },
+    "v": {
+      "type": "lever",
+      "id": "V1",
+      "mode": "hold"
+    },
+    "x": {
+      "type": "exit",
+      "id": "X",
+      "slots": 5
+    },
+    "$": {
+      "type": "coin"
+    }
+  },
+  "goal": {
+    "botsThrough": 5
+  },
+  "solution": [
+    {
+      "A": [
+        "walk(right, 12)"
+      ],
+      "B": [
+        "walk(right, 12)"
+      ],
+      "C": [
+        "walk(right, 17)",
+        "wait",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "D": [
+        "walk(right, 17)",
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "E": [
+        "walk(right, 17)",
+        "walk_to(V1)",
+        "hold_lever"
+      ]
+    },
+    {
+      "B": [
+        "walk_to(X)",
+        "enter_exit"
+      ],
+      "A": [
+        "wait",
+        "wait",
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    },
+    {
+      "E": [
+        "walk_to(X)",
+        "enter_exit"
+      ]
+    }
+  ],
+  "notes": "Why one bot cannot finish alone: plate P1 needs two bots on it, and the only other way to open the door is lever V1, which is on the far side and works only while held. Two bots stacked on the plate count too. Whoever holds V1 lets go last and walks back to the exit."
+}

@@ -52,14 +52,23 @@ export const LevelFileSchema = z.object({
   description: z.string(),
   /** "cooperative" means no single bot may be able to finish it (checked by the validator). */
   tags: z.array(z.string()).default([]),
+  /**
+   * puzzle: has a goal and a solution the validator replays.
+   * practice: a risk-free room to explore; no goal, it just lasts its rounds.
+   */
+  kind: z.enum(['puzzle', 'practice']).default('puzzle'),
+  /** How many rounds the bots get in this level. */
+  rounds: z.number().int().min(1).max(100).default(12),
   map: z.array(z.string()).min(3),
   key: z.record(z.string().length(1), KeyEntrySchema).default({}),
-  goal: z.object({ botsThrough: z.number().int().min(1) }),
+  goal: z.object({ botsThrough: z.number().int().min(1) }).optional(),
   /** A known way to finish the level: per round, each bot's command queue. The validator replays it. */
-  solution: z.array(z.record(z.string(), z.array(z.string()).max(MAX_SLOTS))).min(1),
+  solution: z.array(z.record(z.string(), z.array(z.string()).max(MAX_SLOTS))).default([]),
   notes: z.string().optional(),
 });
 export type LevelFile = z.infer<typeof LevelFileSchema>;
+/** A level file as written by hand: fields with defaults (kind, rounds, tags, ...) may be left out. */
+export type LevelFileInput = z.input<typeof LevelFileSchema>;
 
 /** Tile coordinates: column tx from the left, row ty from the bottom. */
 export interface CrateDef { id: string; tx: number; ty: number; weight: number } // weight in thousandths of a bot
@@ -75,6 +84,8 @@ export interface Level {
   description: string;
   tags: string[];
   cooperative: boolean;
+  kind: 'puzzle' | 'practice';
+  rounds: number;
   width: number;
   height: number;
   /** One tile code per cell; index (ty * width + tx). Shared by every world built from this level, never changed. */
@@ -86,7 +97,8 @@ export interface Level {
   levers: LeverDef[];
   coins: CoinDef[];
   exits: ExitDef[];
-  goal: { botsThrough: number };
+  /** Null for practice rooms, which have no goal. */
+  goal: { botsThrough: number } | null;
   solution: Record<string, string[]>[];
   /** The picture from the file, for display. */
   map: string[];
@@ -115,6 +127,8 @@ export function parseLevel(file: LevelFile): Level {
     description: file.description,
     tags: file.tags,
     cooperative: file.tags.includes('cooperative'),
+    kind: file.kind,
+    rounds: file.rounds,
     width,
     height,
     tiles,
@@ -125,7 +139,7 @@ export function parseLevel(file: LevelFile): Level {
     levers: [],
     coins: [],
     exits: [],
-    goal: file.goal,
+    goal: file.goal ?? null,
     solution: file.solution,
     map: file.map,
   };
@@ -218,8 +232,12 @@ export function parseLevel(file: LevelFile): Level {
   }
   const spawnCount = Object.keys(level.spawns).length;
   const slots = level.exits.reduce((n, e) => n + e.slots, 0);
-  if (file.goal.botsThrough > spawnCount) problems.push(`the goal needs ${file.goal.botsThrough} bots but there are ${spawnCount} starting tiles`);
-  if (file.goal.botsThrough > slots) problems.push(`the goal needs ${file.goal.botsThrough} bots through, but the exits only have ${slots} slots`);
+  if (file.kind === 'puzzle') {
+    if (!file.goal) problems.push('a puzzle level needs a goal');
+    if (file.solution.length === 0) problems.push('a puzzle level needs a solution the validator can replay');
+  }
+  if (file.goal && file.goal.botsThrough > spawnCount) problems.push(`the goal needs ${file.goal.botsThrough} bots but there are ${spawnCount} starting tiles`);
+  if (file.goal && file.goal.botsThrough > slots) problems.push(`the goal needs ${file.goal.botsThrough} bots through, but the exits only have ${slots} slots`);
   for (const round of file.solution) {
     for (const bot of Object.keys(round)) {
       if (!level.spawns[bot]) problems.push(`the solution gives commands to bot ${bot}, which has no starting tile`);

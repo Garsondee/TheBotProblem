@@ -20,7 +20,7 @@ import { coinBox, doorBox, exitBox, isFree, leverReachBox, overlaps, plateSpan, 
 import { TILE, tileAt } from './level';
 import type { Intent, PushOutcome, StepReport } from './physics';
 import type { Bot, World } from './world';
-import { botById, describeContact, tiles, weightText, where } from './world';
+import { botById, describeContact, footingText, tiles, weightText, where } from './world';
 
 export type ControllerStatus = 'running' | 'holding' | 'done' | 'failed';
 
@@ -138,7 +138,7 @@ class Mover extends Base {
       this.pushedTotal += push.moved;
     }
     if (this.fell) {
-      if (bot.grounded || bot.onLadder) this.finish(`${this.note} and landed at ${where(bot)}`);
+      if (bot.grounded || bot.onLadder) this.finish(`${this.note} and landed on ${footingText(bot)} at ${where(bot)}`);
       return;
     }
     if (!bot.grounded) {
@@ -232,7 +232,7 @@ class Jumper extends Base {
     }
     this.peak = Math.max(this.peak, bot.y);
     if (bot.grounded || bot.onLadder) {
-      this.finish(`took off at ${this.from}, feet rose to y=${tiles(this.peak)}, landed at ${where(bot)}`);
+      this.finish(`took off at ${this.from}, feet rose to y=${tiles(this.peak)}, landed on ${footingText(bot)} at ${where(bot)}`);
     }
   }
 }
@@ -290,7 +290,7 @@ class Climber extends Base {
   override after(world: World, report: StepReport): void {
     const bot = this.bot(world);
     if (!bot.onLadder) {
-      if (bot.grounded) this.finish(`climbed off the bottom of the ladder and landed at ${where(bot)}`);
+      if (bot.grounded) this.finish(`climbed off the bottom of the ladder and landed on ${footingText(bot)} at ${where(bot)}`);
       return;
     }
     if (this.up && bot.y >= this.topY) {
@@ -334,7 +334,7 @@ class Dropper extends Base {
 
   override after(world: World): void {
     const bot = this.bot(world);
-    if (bot.grounded && bot.y < this.y0) this.finish(`dropped and landed at ${where(bot)}`);
+    if (bot.grounded && bot.y < this.y0) this.finish(`dropped and landed on ${footingText(bot)} at ${where(bot)}`);
   }
 }
 

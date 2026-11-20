@@ -18,7 +18,8 @@
     "estimate": "tsx harness/cli/estimate.ts",
     "fake-run": "tsx harness/cli/fakeRun.ts",
     "levels": "tsx harness/cli/levels.ts",
-    "format-test": "tsx harness/cli/formatTest.ts"
+    "format-test": "tsx harness/cli/formatTest.ts",
+    "game": "tsx harness/cli/game.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -14,7 +14,7 @@ Read first: [docs/SPEC.md](docs/SPEC.md) (Ingram's brief), [docs/STATE.md](docs/
 
 ## Commands
 
-`npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`.
+`npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run game -- --mock` / `--scripted` (free games), `npm run game -- --dry-run` (a paid game's estimate, from real prompts), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`.
 
 ## Code layout rules
 

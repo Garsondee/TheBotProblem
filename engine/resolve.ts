@@ -66,6 +66,12 @@ export interface ResolveOptions {
   /** Record the physics trace (default true). The validator's searches turn it off for speed. */
   trace?: boolean;
   maxSlotSteps?: number;
+  /**
+   * Keep a copy of the world as it was at the end of each slot. The game uses
+   * them to work out who could see what happen (spec section 6: bots
+   * "witness actions done in sight").
+   */
+  slotWorlds?: boolean;
 }
 
 export interface ResolveOutput {
@@ -73,6 +79,8 @@ export interface ResolveOutput {
   results: CommandResult[];
   events: WorldEvent[];
   trace: Trace | null;
+  /** The world at the end of each slot that ran, in order (empty unless asked for). Slot 1 began from the input world. */
+  slotWorlds: World[];
 }
 
 function frameOf(world: World): Record<string, TraceFrame> {
@@ -138,6 +146,7 @@ export function resolvePhase(
   const maxSteps = options.maxSlotSteps ?? MAX_SLOT_STEPS;
   const results: CommandResult[] = [];
   const events: WorldEvent[] = [];
+  const slotWorlds: World[] = [];
   const stopped = new Set<string>();
 
   for (let slot = 1; slot <= MAX_SLOTS; slot++) {
@@ -206,8 +215,9 @@ export function resolvePhase(
         endStep: world.step,
       });
     }
+    if (options.slotWorlds) slotWorlds.push(cloneWorld(world));
   }
 
   results.sort((a, b) => a.slot - b.slot || (a.bot < b.bot ? -1 : a.bot > b.bot ? 1 : 0));
-  return { world, results, events, trace: recorder ? recorder.finish(world) : null };
+  return { world, results, events, trace: recorder ? recorder.finish(world) : null, slotWorlds };
 }

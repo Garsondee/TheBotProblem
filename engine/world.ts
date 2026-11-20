@@ -190,6 +190,27 @@ export function describeContact(contact: Contact): string {
   }
 }
 
+/**
+ * What a body is standing on, in words: "solid ground", "bot E", "crate C1".
+ * Results say it because a body feels what it lands on, and y alone can
+ * mislead: in the first real test, bots that landed on a head (y=3.50)
+ * guessed they were on a crate (y=3.00).
+ */
+export function footingText(body: Body): string {
+  const s = body.support;
+  if (!s) return 'nothing';
+  switch (s.kind) {
+    case 'tile':
+      return s.tile === 'solid' ? 'solid ground' : s.tile === 'platform' ? 'a one-way platform' : 'the top of a ladder';
+    case 'door':
+      return `door ${s.id}`;
+    case 'bot':
+      return `bot ${s.id}`;
+    case 'crate':
+      return `crate ${s.id}`;
+  }
+}
+
 /** Units to tiles, rounded to two decimals, for text a bot or a person reads. */
 export function tiles(units: number): string {
   return (Math.round(units / 100) / 100).toFixed(2);

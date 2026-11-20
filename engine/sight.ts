@@ -99,6 +99,46 @@ export function canSeeBody(world: World, viewer: Bot, body: Body): boolean {
   return points.some((p) => canSeePoint(world, viewer, p));
 }
 
+/** Everything one bot can see right now. Ids are sorted, so views built from it are stable. */
+export interface Perception {
+  /** One flag per cell, index (ty * width + tx). */
+  tiles: boolean[];
+  /** Other bots in sight (bots that went through an exit are gone from the room). */
+  bots: string[];
+  crates: string[];
+  doors: string[];
+  plates: string[];
+  levers: string[];
+  exits: string[];
+  /** Coins still lying in the room. */
+  coins: string[];
+}
+
+/**
+ * What `viewerId` can see from where it stands. Bodies (bots, crates) count
+ * as seen when any part of them is (canSeeBody); things fixed to the room
+ * (doors, plates, levers, exits, coins) when any tile they occupy is.
+ */
+export function perceive(world: World, viewerId: string): Perception {
+  const viewer = world.bots.find((b) => b.id === viewerId);
+  if (!viewer) throw new Error(`No bot ${viewerId} in this world.`);
+  const { level } = world;
+  const tiles = visibleTiles(world, viewer);
+  const seenTile = (tx: number, ty: number) => tiles[ty * level.width + tx] === true;
+  const anyTile = (cells: [number, number][]) => cells.some(([tx, ty]) => seenTile(tx, ty));
+  const column = (tx: number, ty: number, h: number): [number, number][] => Array.from({ length: h }, (_, i) => [tx, ty + i]);
+  return {
+    tiles,
+    bots: world.bots.filter((b) => b !== viewer && !b.exited && canSeeBody(world, viewer, b)).map((b) => b.id),
+    crates: world.crates.filter((c) => canSeeBody(world, viewer, c)).map((c) => c.id),
+    doors: level.doors.filter((d) => anyTile(column(d.tx, d.ty, d.height))).map((d) => d.id),
+    plates: level.plates.filter((p) => anyTile(Array.from({ length: p.width }, (_, i) => [p.tx + i, p.ty]))).map((p) => p.id),
+    levers: level.levers.filter((l) => seenTile(l.tx, l.ty)).map((l) => l.id),
+    exits: level.exits.filter((e) => anyTile(column(e.tx, e.ty, 2))).map((e) => e.id),
+    coins: level.coins.filter((c) => world.coins.includes(c.id) && seenTile(c.tx, c.ty)).map((c) => c.id),
+  };
+}
+
 /** Which tiles `viewer` can see: one flag per cell, index (ty * width + tx). */
 export function visibleTiles(world: World, viewer: Bot): boolean[] {
   const { width, height } = world.level;
