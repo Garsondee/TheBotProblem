@@ -418,7 +418,7 @@ export class Cards {
       this.notice.dataset.tone = passed ? 'good' : 'muted';
       const what = e.kind === 'repeal' ? 'Repeal' : e.kind === 'threshold' ? 'New threshold' : 'Rule';
       this.notice.append(
-        el('div', 'kicker', `The constitution · ${e.id}`),
+        el('div', 'kicker', `The constitution · ${e.rule}`),
         el('div', 'title', `${what} ${passed ? 'passes' : 'fails'}`),
         el('p', '', `“${e.text}”`),
         el('div', 'count', `${e.yes} yes · ${e.no} no · ${e.needed} needed · proposed by ${nameOf(e.by, names)}`),

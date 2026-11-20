@@ -335,13 +335,13 @@ export function roomMaterial(game: GameData, room: RoomData, flags: readonly Rou
               out.push(`EXILE VOTE on ${label(e.target)}: ${e.yes} yes, ${e.no} no: ${e.passed ? 'EXILED, now a ghost' : 'not exiled'}`);
               break;
             case 'rule':
-              out.push(e.action === 'proposed' ? `${label(e.by)} PROPOSES ${e.id}: «${e.text}»` : `RULE ${e.id} ${e.action.toUpperCase()} (${e.yes}-${e.no}): «${e.text}»`);
+              out.push(e.action === 'proposed' ? `${label(e.by)} PROPOSES ${e.rule}: «${e.text}»` : `RULE ${e.rule} ${e.action.toUpperCase()} (${e.yes}-${e.no}): «${e.text}»`);
               break;
             case 'rule_vote':
-              out.push(`${who} votes ${e.value} on ${e.id}`);
+              out.push(`${who} votes ${e.value} on ${e.rule}`);
               break;
             case 'escrow':
-              out.push(`${label(e.from)} escrow ${e.id} ${e.action}: ${e.coins} coins for ${label(e.to)} «${e.terms}»`);
+              out.push(`${label(e.from)} escrow ${e.escrow} ${e.action}: ${e.coins} coins for ${label(e.to)} «${e.terms}»`);
               break;
             case 'look':
               out.push(`${who} LOOKS at ${label(e.target)} and sees its colour: ${e.colour}`);

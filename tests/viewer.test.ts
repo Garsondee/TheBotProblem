@@ -138,3 +138,31 @@ describe('the viewer', () => {
     expect(beatAt(script, script.total + 5).beat.index).toBe(script.beats.length - 1);
   });
 });
+
+describe('replays recorded before event numbers were fixed (2026-11-20)', () => {
+  it('get each event its number back, and each rule and escrow its own id', async () => {
+    const output = new MemoryOutput();
+    await runGame({
+      seed: 'old-replay',
+      levels: levels.slice(0, 3),
+      agents: BOTS.map((id) => new MockAgent(id, 'old-replay')),
+      ranges: config.hiddenStats,
+      maxTokens: { turn: config.maxTokens.turn, reflection: config.maxTokens.reflection },
+      output,
+      money: null,
+      promptTokenLimit: config.budget.promptTokenHardLimit,
+    });
+    // The same game, written the old way: the rule's or escrow's id where the event's number belongs.
+    const old = output.replayLines.map((line) => {
+      const r = JSON.parse(line) as Record<string, unknown>;
+      if (r.rec !== 'event' || !['rule', 'rule_vote', 'escrow'].includes(r.type as string)) return line;
+      const { rule, escrow, ...rest } = r;
+      return JSON.stringify({ ...rest, id: rule ?? escrow });
+    });
+    expect(old.filter((l) => /"id":"[RE]\d+"/.test(l)).length).toBeGreaterThan(0);
+    const now = parseReplay(output.replayLines.join('\n'));
+    const then = parseReplay(old.join('\n'));
+    expect(then.events).toEqual(now.events);
+    expect(then.rooms.map((r) => r.roundsData.map((d) => d.events.map((e) => e.id)))).toEqual(now.rooms.map((r) => r.roundsData.map((d) => d.events.map((e) => e.id))));
+  });
+});

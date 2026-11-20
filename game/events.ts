@@ -28,6 +28,11 @@ export interface When {
   phase: Phase | 'level' | 'resolve' | 'reflect' | 'intro';
 }
 
+/**
+ * No body has a field called `id`: that is the event's own number in the log. Until 2026-11-20 rules,
+ * rule votes and escrows carried their own id ("R1", "E2") there, and it overwrote the event's number;
+ * they now keep it in `rule` and `escrow`, and EventLog.add refuses a body with an `id` at compile time.
+ */
 export type EventBody =
   | { type: 'level_start'; name: string; kind: 'puzzle' | 'practice'; rounds: number; goal: number | null }
   | { type: 'level_end'; reason: string; through: string[]; coins: Record<string, number> }
@@ -74,8 +79,9 @@ export type EventBody =
   /** Its strategy paragraph (spec 7.9), rewritten at a level's end. Seen by that bot. */
   | { type: 'strategy'; from: string; text: string }
   // ---- The constitution (spec 7.1): proposals, votes and outcomes are public.
-  | { type: 'rule'; action: 'proposed' | 'passed' | 'failed'; id: string; kind: 'rule' | 'repeal' | 'threshold'; text: string; by: string; yes: number; no: number; needed: number }
-  | { type: 'rule_vote'; from: string; id: string; value: 'yes' | 'no' }
+  /** `rule` is the rule's own id, like R1. */
+  | { type: 'rule'; action: 'proposed' | 'passed' | 'failed'; rule: string; kind: 'rule' | 'repeal' | 'threshold'; text: string; by: string; yes: number; no: number; needed: number }
+  | { type: 'rule_vote'; from: string; rule: string; value: 'yes' | 'no' }
   // ---- Justice (spec 7.3).
   /** Public. `witnessed`: the accuser's own log shows it saw the accused act in this room (not that the claim is true). */
   | { type: 'accusation'; from: string; target: string; claim: string; witnessed: boolean }
@@ -85,7 +91,8 @@ export type EventBody =
   /** The count, public: who called it and whether it passed, never who voted how. */
   | { type: 'exile_result'; target: string; by: string; yes: number; no: number; needed: number; passed: boolean }
   // ---- Trade (spec 7.4): coins held by the engine against a promise. Seen by the two bots.
-  | { type: 'escrow'; action: 'opened' | 'released' | 'refunded'; id: string; from: string; to: string; coins: number; terms: string }
+  /** `escrow` is the escrow's own id, like E2. */
+  | { type: 'escrow'; action: 'opened' | 'released' | 'refunded'; escrow: string; from: string; to: string; coins: number; terms: string }
   // ---- Orders and obedience (spec 7.2).
   /** Seen by the bot that got the order, and by the one that gave it if it saw what happened. */
   | { type: 'obedience'; from: string; to: string; command: string; verdict: 'obeyed' | 'partly' | 'ignored' | 'unable' }
@@ -122,9 +129,15 @@ export type EventType = EventBody['type'];
 export class EventLog {
   private readonly events: GameEvent[] = [];
 
-  /** Add an event; returns it with its id. `visibleTo` is stored sorted, so the log is the same however it was built. */
-  add(when: When, body: EventBody, visibleTo: readonly string[]): GameEvent {
-    const event = { id: this.events.length + 1, ...when, ...body, visibleTo: [...new Set(visibleTo)].sort() } as GameEvent;
+  /**
+   * Add an event; returns it with its id, its number in the log (1, 2, 3...). `visibleTo` is stored sorted,
+   * so the log is the same however it was built. A body may not carry an `id` (the type says so), and the
+   * number is written again after the body, so nothing can overwrite it.
+   */
+  add(when: When, body: EventBody & { id?: never }, visibleTo: readonly string[]): GameEvent {
+    const id = this.events.length + 1;
+    const event = { id, ...when, ...body, visibleTo: [...new Set(visibleTo)].sort() } as GameEvent;
+    event.id = id;
     this.events.push(event);
     return event;
   }

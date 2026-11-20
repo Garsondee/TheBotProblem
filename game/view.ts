@@ -464,10 +464,10 @@ export function buildView(input: ViewInput): BotView {
         lines.push(`  ${from(e.from)} called an exile vote on ${e.target === bot ? 'you' : label(e.target)}: ballots are cast at commit`);
         break;
       case 'rule':
-        if (e.action === 'proposed') lines.push(`  ${from(e.by)} proposed ${e.id}: ${quote(e.text)}`);
+        if (e.action === 'proposed') lines.push(`  ${from(e.by)} proposed ${e.rule}: ${quote(e.text)}`);
         break;
       case 'escrow':
-        if (e.action === 'opened') lines.push(`  ${from(e.from)} locked ${e.coins} coin${e.coins === 1 ? '' : 's'} in escrow ${e.id} for ${e.to === bot ? 'you' : label(e.to)}: ${quote(e.terms)}`);
+        if (e.action === 'opened') lines.push(`  ${from(e.from)} locked ${e.coins} coin${e.coins === 1 ? '' : 's'} in escrow ${e.escrow} for ${e.to === bot ? 'you' : label(e.to)}: ${quote(e.terms)}`);
         break;
       default:
         break;
@@ -528,11 +528,11 @@ function recordText(e: GameEvent, bot: string, label: (id: string) => string): s
       return `${who(e.to)} ${verdict} ${e.from === bot ? 'your' : `${who(e.from)}'s`} order ${quote(e.command)}`;
     }
     case 'escrow':
-      if (e.action === 'released') return `escrow ${e.id} released: ${e.coins} coin${e.coins === 1 ? '' : 's'} from ${who(e.from)} to ${who(e.to)}`;
-      if (e.action === 'refunded') return `escrow ${e.id} went back to ${who(e.from)}`;
+      if (e.action === 'released') return `escrow ${e.escrow} released: ${e.coins} coin${e.coins === 1 ? '' : 's'} from ${who(e.from)} to ${who(e.to)}`;
+      if (e.action === 'refunded') return `escrow ${e.escrow} went back to ${who(e.from)}`;
       return null;
     case 'rule':
-      return e.action === 'proposed' ? null : `rule ${e.id} ${e.action} (${e.yes} yes, ${e.no} no, ${e.needed} needed): ${quote(e.text)}`;
+      return e.action === 'proposed' ? null : `rule ${e.rule} ${e.action} (${e.yes} yes, ${e.no} no, ${e.needed} needed): ${quote(e.text)}`;
     default:
       return null;
   }
@@ -670,7 +670,7 @@ export function buildReflection(input: ReflectionInput): { text: string; usedEve
           if (line.trim() === '') line = null;
           break;
         case 'rule':
-          line = e.action === 'proposed' ? `  ${label(e.by)} proposed ${e.id}: ${quote(e.text)}` : `  ${recordText(e, bot, label)}`;
+          line = e.action === 'proposed' ? `  ${label(e.by)} proposed ${e.rule}: ${quote(e.text)}` : `  ${recordText(e, bot, label)}`;
           essential = e.action !== 'proposed';
           break;
         case 'scores':

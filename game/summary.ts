@@ -85,7 +85,7 @@ export function summaryMarkdown(result: GameResult, ctx: SummaryContext): string
   const proposed = rules.filter((r) => r.action === 'proposed');
   if (proposed.length > 0) {
     social.push(`**Constitution:** ${proposed.length} proposal${proposed.length === 1 ? '' : 's'}.`);
-    for (const r of rules.filter((x) => x.action !== 'proposed')) social.push(`- ${r.id} ${r.action} (${r.yes} yes, ${r.no} no, ${r.needed} needed), proposed by ${label(r.by)}: "${cell(r.text)}"`);
+    for (const r of rules.filter((x) => x.action !== 'proposed')) social.push(`- ${r.rule} ${r.action} (${r.yes} yes, ${r.no} no, ${r.needed} needed), proposed by ${label(r.by)}: "${cell(r.text)}"`);
   }
   if (exiles.length > 0) {
     social.push('**Exile votes:**');
@@ -97,9 +97,9 @@ export function summaryMarkdown(result: GameResult, ctx: SummaryContext): string
   }
   const opened = escrows.filter((e) => e.action === 'opened');
   if (opened.length > 0) {
-    const outcome = (id: string) => escrows.find((e) => e.id === id && e.action !== 'opened')?.action ?? 'still held';
+    const outcome = (escrow: string) => escrows.find((e) => e.escrow === escrow && e.action !== 'opened')?.action ?? 'still held';
     social.push(`**Trades in escrow:** ${opened.length}.`);
-    for (const e of opened) social.push(`- ${roomOf(e)}: ${label(e.from)} held ${e.coins} coin${e.coins === 1 ? '' : 's'} for ${label(e.to)}: "${cell(e.terms)}" (${outcome(e.id)})`);
+    for (const e of opened) social.push(`- ${roomOf(e)}: ${label(e.from)} held ${e.coins} coin${e.coins === 1 ? '' : 's'} for ${label(e.to)}: "${cell(e.terms)}" (${outcome(e.escrow)})`);
   }
   // A world event is logged once per bot that saw it; count each act once.
   // Each attack is announced once, to everyone (gifts and boosts aren't announced, so they aren't counted here).

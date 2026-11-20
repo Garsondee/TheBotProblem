@@ -260,7 +260,7 @@ export class StageText {
       } else if (e.type === 'rule' && e.action === 'proposed') {
         const b = el('div', 'bubble rule');
         const what = e.kind === 'repeal' ? 'proposes a repeal' : e.kind === 'threshold' ? 'proposes a new voting threshold' : 'proposes a rule';
-        b.append(who(`${what} · ${e.id}`), el('div', '', e.text));
+        b.append(who(`${what} · ${e.rule}`), el('div', '', e.text));
         node.append(b);
       }
     }
@@ -268,7 +268,7 @@ export class StageText {
     for (const e of ev) {
       if (e.type === 'rule_vote') {
         const chip = el('div', `chip vote${e.value === 'no' ? ' against' : ''}`);
-        chip.append(el('span', 'label', 'Votes'), el('span', 'cmd', `${e.value} on ${e.id}`));
+        chip.append(el('span', 'label', 'Votes'), el('span', 'cmd', `${e.value} on ${e.rule}`));
         node.append(chip);
       } else if (e.type === 'escrow' && e.action === 'opened') {
         const chip = el('div', 'chip trade');

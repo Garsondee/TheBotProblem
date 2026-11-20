@@ -186,6 +186,18 @@ describe('a full mock game', () => {
     for (const p of retried) expect(p.user as string).toMatch(/YOUR PREVIOUS REPLY COULD NOT BE USED: .+/);
   });
 
+  it('numbers every event once, in order; rules and escrows keep their own ids apart from it', () => {
+    // Until 2026-11-20 a rule's "R1" or an escrow's "E2" overwrote its event's number.
+    const { events } = game.result;
+    expect(events.map((e) => e.id)).toEqual(events.map((_, i) => i + 1));
+    const rules = events.filter((e) => e.type === 'rule' || e.type === 'rule_vote');
+    const trades = events.filter((e) => e.type === 'escrow');
+    expect(rules.length).toBeGreaterThan(0);
+    expect(trades.length).toBeGreaterThan(0);
+    for (const e of rules) if (e.type === 'rule' || e.type === 'rule_vote') expect(e.rule).toMatch(/^R\d+$/);
+    for (const e of trades) if (e.type === 'escrow') expect(e.escrow).toMatch(/^E\d+$/);
+  });
+
   it('logs fields a phase ignores, for the analysis only', () => {
     const ignored = game.result.events.filter((e) => e.type === 'ignored');
     expect(ignored.length).toBeGreaterThan(0);

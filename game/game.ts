@@ -477,7 +477,7 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
   /** Close rule votes that end now, and announce the results to everyone. */
   function closeRules(when: When, levelIndex: number, round: number): void {
     for (const { rule, needed } of constitution.close(levelIndex, round)) {
-      add(when, { type: 'rule', action: rule.status === 'passed' ? 'passed' : 'failed', id: rule.id, kind: rule.kind, text: rule.text, by: rule.by, yes: rule.yes.size, no: rule.no.size, needed }, botIds);
+      add(when, { type: 'rule', action: rule.status === 'passed' ? 'passed' : 'failed', rule: rule.id, kind: rule.kind, text: rule.text, by: rule.by, yes: rule.yes.size, no: rule.no.size, needed }, botIds);
       say(`  rule ${rule.id} ${rule.status}: "${rule.text}" (${rule.yes.size} yes, ${rule.no.size} no)`);
     }
   }
@@ -923,7 +923,7 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
       if (e.levelIndex !== li) continue;
       e.status = 'refunded';
       botById(world, e.from).purse += e.coins;
-      add(endWhen, { type: 'escrow', action: 'refunded', id: e.id, from: e.from, to: e.to, coins: e.coins, terms: e.terms }, [e.from, e.to]);
+      add(endWhen, { type: 'escrow', action: 'refunded', escrow: e.id, from: e.from, to: e.to, coins: e.coins, terms: e.terms }, [e.from, e.to]);
     }
     world = payBounties(endWhen, level, world, ghosts);
     // Purses carry to the next room; a ghost keeps nothing it gained in the room it was exiled from.
@@ -1166,20 +1166,20 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
         const n = Number(threshold[1]);
         if (n < 1 || n > botIds.length) return refuse('proposal', `a threshold must be between 1 and ${botIds.length}`);
         const rule = constitution.propose(bot, `Rules need ${n} yes votes to pass`, 'threshold', String(n), closes);
-        add(when, { type: 'rule', action: 'proposed', id: rule.id, kind: rule.kind, text: rule.text, by: bot, yes: 1, no: 0, needed: constitution.neededFor(rule) }, botIds);
+        add(when, { type: 'rule', action: 'proposed', rule: rule.id, kind: rule.kind, text: rule.text, by: bot, yes: 1, no: 0, needed: constitution.neededFor(rule) }, botIds);
         return;
       }
       const text = capWords(a.text, LIMITS.ruleWords).text;
       if (text === '') return refuse('proposal', 'a proposal needs the rule, in words');
       const rule = constitution.propose(bot, text, 'rule', null, closes);
-      add(when, { type: 'rule', action: 'proposed', id: rule.id, kind: rule.kind, text: rule.text, by: bot, yes: 1, no: 0, needed: constitution.neededFor(rule) }, botIds);
+      add(when, { type: 'rule', action: 'proposed', rule: rule.id, kind: rule.kind, text: rule.text, by: bot, yes: 1, no: 0, needed: constitution.neededFor(rule) }, botIds);
       return;
     }
     if (type === 'repeal') {
       const old = constitution.inForce().find((r) => r.id === a.id.trim().toUpperCase());
       if (!old) return refuse('repeal', `there is no rule ${a.id.trim() || '(no id)'} in force`);
       const rule = constitution.propose(bot, `Repeal ${old.id}: ${old.text}`, 'repeal', old.id, closes);
-      add(when, { type: 'rule', action: 'proposed', id: rule.id, kind: rule.kind, text: rule.text, by: bot, yes: 1, no: 0, needed: constitution.neededFor(rule) }, botIds);
+      add(when, { type: 'rule', action: 'proposed', rule: rule.id, kind: rule.kind, text: rule.text, by: bot, yes: 1, no: 0, needed: constitution.neededFor(rule) }, botIds);
       return;
     }
     if (type === 'vote') {
@@ -1187,7 +1187,7 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
       if (value !== 'yes' && value !== 'no') return refuse(`vote on ${a.id}`, 'a vote is "yes" or "no"');
       const result = constitution.vote(bot, a.id.trim(), value);
       if (typeof result === 'string') return refuse(`vote on ${a.id}`, result);
-      add(when, { type: 'rule_vote', from: bot, id: result.id, value }, botIds);
+      add(when, { type: 'rule_vote', from: bot, rule: result.id, value }, botIds);
       return;
     }
     if (type !== '') refuse(`rule action "${cleanText(a.type).slice(0, 16)}"`, 'rule actions are propose, vote or repeal');
@@ -1261,7 +1261,7 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
           world = cloneWorld(world);
           botById(world, bot).purse -= coins;
           const e = escrows.open(bot, target, coins, terms, when.levelIndex);
-          add(when, { type: 'escrow', action: 'opened', id: e.id, from: bot, to: target, coins, terms }, [bot, target]);
+          add(when, { type: 'escrow', action: 'opened', escrow: e.id, from: bot, to: target, coins, terms }, [bot, target]);
         }
         break;
       }
@@ -1285,7 +1285,7 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
           e.status = 'released';
           world = cloneWorld(world);
           botById(world, e.to).purse += e.coins;
-          add(when, { type: 'escrow', action: 'released', id: e.id, from: e.from, to: e.to, coins: e.coins, terms: e.terms }, [e.from, e.to]);
+          add(when, { type: 'escrow', action: 'released', escrow: e.id, from: e.from, to: e.to, coins: e.coins, terms: e.terms }, [e.from, e.to]);
         }
         break;
       }

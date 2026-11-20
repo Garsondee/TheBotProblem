@@ -79,9 +79,8 @@ describe('in a game', () => {
     for (const e of ev) if (e.type === 'say' || e.type === 'draft') steps.set(`${e.levelIndex}|${e.round}|${e.phase}|${e.type}`, [...(steps.get(`${e.levelIndex}|${e.round}|${e.phase}|${e.type}`) ?? []), e]);
     let checked = 0;
     for (const [key, group] of steps) {
-      // Where the step began. (Only numbered events: a rule's or an escrow's own id still overwrites its event id,
-      // a known fault in EventLog.add, docs/STATE.md "Known gaps".)
-      const step = ev.filter((e) => e.levelIndex === group[0]?.levelIndex && e.round === group[0]?.round && e.phase === group[0]?.phase && typeof e.id === 'number');
+      // Where the step began.
+      const step = ev.filter((e) => e.levelIndex === group[0]?.levelIndex && e.round === group[0]?.round && e.phase === group[0]?.phase);
       const order = actingOrder(bots, namesBefore(Math.min(...step.map((e) => e.id))), 'name');
       const speakers = [...new Set(group.map((e) => (e.type === 'say' || e.type === 'draft' ? e.from : '')))];
       expect(speakers, `${key}: order ${order.join('')}`).toEqual([...speakers].sort((a, b) => order.indexOf(a) - order.indexOf(b)));

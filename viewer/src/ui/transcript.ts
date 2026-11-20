@@ -243,12 +243,12 @@ export class Transcript {
         break;
       case 'rule':
         node.classList.add('rule-e');
-        kind(`proposes ${e.id}`);
+        kind(`proposes ${e.rule}`);
         body.append(head, document.createTextNode(e.text));
         break;
       case 'rule_vote':
         node.classList.add('plan-e');
-        kind(`votes on ${e.id}`);
+        kind(`votes on ${e.rule}`);
         body.append(head, el('b', '', e.value));
         break;
       case 'escrow': {
@@ -300,7 +300,7 @@ export class Transcript {
   private outcome(e: GameEvent, names: Readonly<Record<string, string | null>>): HTMLElement | null {
     const box = el('div', 'happened');
     if (e.type === 'rule') {
-      box.append(el('div', 'ttl', `Rule ${e.id} ${e.action}`), el('div', '', `“${e.text}”: ${e.yes} yes, ${e.no} no (${e.needed} needed).`));
+      box.append(el('div', 'ttl', `Rule ${e.rule} ${e.action}`), el('div', '', `“${e.text}”: ${e.yes} yes, ${e.no} no (${e.needed} needed).`));
     } else if (e.type === 'exile_result') {
       box.append(el('div', 'ttl', e.passed ? `${nameOf(e.target, names)} is exiled` : `${nameOf(e.target, names)} is not exiled`), el('div', '', `Exile vote called by ${nameOf(e.by, names)}: ${e.yes} yes, ${e.no} no (${e.needed} needed).`));
     } else {

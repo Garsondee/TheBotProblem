@@ -122,6 +122,20 @@ interface StartWorld {
 
 export class ReplayError extends Error {}
 
+/**
+ * Replays recorded before 2026-11-20 gave rule, rule-vote and escrow events the rule's or escrow's own id
+ * ("R1", "E2") where the event's number belongs: the event log spread their bodies over it. The number is
+ * easy to recover, since the replay writes every event in order, one apart; the rule's or escrow's id moves
+ * to its own field, as in newer replays. Newer events pass through untouched.
+ */
+export function upgradeEvent(raw: Record<string, unknown>, previousId: number): GameEvent {
+  if (typeof raw.id === 'number') return raw as unknown as GameEvent;
+  const e: Record<string, unknown> = { ...raw, id: previousId + 1 };
+  if (raw.type === 'rule' || raw.type === 'rule_vote') e.rule = raw.id;
+  if (raw.type === 'escrow') e.escrow = raw.id;
+  return e as unknown as GameEvent;
+}
+
 export function parseReplay(text: string): GameData {
   const lines = text.split('\n').filter((l) => l.trim() !== '');
   const records = lines.map((line, i) => {
@@ -138,6 +152,7 @@ export function parseReplay(text: string): GameData {
 
   const game: GameData = { seed: header.seed, bots: header.bots, seats: header.seats, stats: header.stats, social: header.social ?? null, guard: header.guard ?? null, rooms: [], end: null, events: [] };
   let room: RoomData | null = null;
+  let lastEventId = 0;
   const roundOf = (r: RoomData, n: number): RoundData => {
     let rd = r.roundsData.find((x) => x.round === n);
     if (!rd) {
@@ -186,7 +201,8 @@ export function parseReplay(text: string): GameData {
         break;
       }
       case 'event': {
-        const e = r as unknown as GameEvent;
+        const e = upgradeEvent(r, lastEventId);
+        lastEventId = e.id;
         game.events.push(e);
         const target = game.rooms[e.levelIndex];
         if (!target) break;
