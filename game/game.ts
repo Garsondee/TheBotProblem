@@ -343,6 +343,8 @@ export async function runGame(opts: GameOptions): Promise<GameResult> {
     host,
     judge: judge ? { provider: judge.provider, model: judge.model } : null,
     turnOrder,
+    // A game-wide talk cadence (--talk-every), when one overrode the rooms' own: each level record has its room's.
+    talkEvery: opts.talkEvery ?? null,
   });
 
   /** One call, with one retry if the reply can't be used (spec section 3, "Robust model calls"). */
