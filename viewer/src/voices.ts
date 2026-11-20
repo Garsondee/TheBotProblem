@@ -1,24 +1,16 @@
 /**
- * The bots' voices (npm run voice; spec section 8.3): "The viewer plays audio in sync with bubbles and never
- * overlaps two voices; it queues them."
+ * The bots' voices, and the narrator's (npm run voice; spec section 8.3): "The viewer plays audio in sync
+ * with bubbles and never overlaps two voices; it queues them."
  *
  * Each line was made once, on Ingram's machine, by Kokoro; the viewer only plays the files. A bot's pitch is
  * applied here, by playing its lines a little faster or slower without keeping the pitch, so the same
- * recording can be re-pitched without voicing it again.
+ * recording can be re-pitched without voicing it again. How long the lines play is worked out in
+ * voiceTiming.ts, which needs no browser.
  */
+import type { VoiceManifest } from './voiceTiming';
 
-/** runs/<id>/voice/index.json (harness/cli/voice.ts writes it). */
-export interface VoiceManifest {
-  version: 1;
-  engine: string;
-  cast: Record<string, { voice: string; speed: number; pitch: number; why?: string }>;
-  lines: Record<string, { file: string; seconds: number; bot: string; kind: string }>;
-}
-
-/** How long each voiced line plays, by event id: its length at its bot's pitch. */
-export function voiceSeconds(m: VoiceManifest): Map<number, number> {
-  return new Map(Object.entries(m.lines).map(([id, l]) => [Number(id), l.seconds / (m.cast[l.bot]?.pitch ?? 1)]));
-}
+export type { VoiceManifest } from './voiceTiming';
+export { narrationSeconds, voiceSeconds } from './voiceTiming';
 
 export class VoicePlayer {
   private queue: { url: string; rate: number; volume: number }[] = [];
@@ -38,8 +30,16 @@ export class VoicePlayer {
       const line = this.manifest.lines[String(id)];
       if (!line) continue;
       // A thought the Director chose is heard quietly: a mind being read, not a bot speaking.
-      this.queue.push({ url: `/api/runs/${encodeURIComponent(this.run)}/voice/${line.file}`, rate: (this.manifest.cast[line.bot]?.pitch ?? 1) * speed, volume: line.kind === 'thought' ? 0.5 : 1 });
+      this.queue.push({ url: this.url(line.file), rate: (this.manifest.cast[line.bot]?.pitch ?? 1) * speed, volume: line.kind === 'thought' ? 0.5 : 1 });
     }
+    if (!this.current) this.next();
+  }
+
+  /** The narrator's line for a story segment, if it was voiced and still fits the story (narrationSeconds). */
+  narrate(segment: number, fits: ReadonlyMap<number, number>, speed = 1): void {
+    const line = this.manifest.narration?.[String(segment)];
+    if (!line || !fits.has(segment)) return;
+    this.queue.push({ url: this.url(line.file), rate: (this.manifest.narrator?.pitch ?? 1) * speed, volume: 1 });
     if (!this.current) this.next();
   }
 
@@ -51,6 +51,10 @@ export class VoicePlayer {
       this.current.pause();
     }
     this.current = null;
+  }
+
+  private url(file: string): string {
+    return `/api/runs/${encodeURIComponent(this.run)}/voice/${file}`;
   }
 
   private next(): void {

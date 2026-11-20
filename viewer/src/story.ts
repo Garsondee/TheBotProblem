@@ -215,17 +215,28 @@ export function bridgeGaps(segments: readonly Segment[], script: Script): Segmen
   return out;
 }
 
-/** `voiceSeconds` (npm run voice): a voiced quote stays on screen until its line has been heard. */
-export function storyTimeline(story: Story, script: Script, game: GameData, voiceSeconds?: ReadonlyMap<number, number>): StoryTimeline {
+/**
+ * `voiceSeconds` (npm run voice): a voiced quote stays on screen until its line has been heard.
+ * `narrationSeconds`: the same for the narrator's voiced lines, by segment (chapters, narration, fast-forwards).
+ */
+export function storyTimeline(
+  story: Story,
+  script: Script,
+  game: GameData,
+  voiceSeconds?: ReadonlyMap<number, number>,
+  narrationSeconds?: ReadonlyMap<number, number>,
+): StoryTimeline {
   const byId = new Map(game.events.map((e) => [e.id, e]));
   const items: StoryItem[] = [];
+  /** At least long enough to read, and long enough to hear if the narrator says it. */
+  const heard = (i: number, read: number, pad: number) => Math.max(read, (narrationSeconds?.get(i) ?? -pad) + pad);
   story.segments.forEach((seg, i) => {
     switch (seg.type) {
       case 'chapter':
-        items.push({ kind: 'card', segment: i, card: 'chapter', text: seg.title, eventId: null, hold: holdAt(script, seg.at), dur: CHAPTER_SECONDS });
+        items.push({ kind: 'card', segment: i, card: 'chapter', text: seg.title, eventId: null, hold: holdAt(script, seg.at), dur: heard(i, CHAPTER_SECONDS, 0.6) });
         break;
       case 'narrate':
-        items.push({ kind: 'card', segment: i, card: 'narrate', text: seg.text, eventId: null, hold: holdAt(script, seg.at), dur: readSeconds(seg.text) });
+        items.push({ kind: 'card', segment: i, card: 'narrate', text: seg.text, eventId: null, hold: holdAt(script, seg.at), dur: heard(i, readSeconds(seg.text), 0.7) });
         break;
       case 'quote': {
         const e = byId.get(seg.eventId);
@@ -248,7 +259,7 @@ export function storyTimeline(story: Story, script: Script, game: GameData, voic
         if (beats.length === 0) return;
         const resolves = beats.filter((b) => b.kind === 'resolve');
         const physics = resolves.reduce((n, b) => n + b.dur, 0);
-        items.push({ kind: 'zip', segment: i, resolves: resolves.map((b) => b.index), physics, hold: holdAt(script, seg.from), dur: zipSeconds(physics, seg.text), text: seg.text });
+        items.push({ kind: 'zip', segment: i, resolves: resolves.map((b) => b.index), physics, hold: holdAt(script, seg.from), dur: heard(i, zipSeconds(physics, seg.text), 0.6), text: seg.text });
         break;
       }
     }

@@ -17,6 +17,11 @@ import { DEFAULT_KINDS, linesToVoice } from '../voice/lines';
 import { wavFromSamples } from '../voice/wav';
 import { parseReplay } from '../viewer/src/data';
 import { buildScript } from '../viewer/src/script';
+import type { Story } from '../viewer/src/story';
+import { storyTimeline } from '../viewer/src/story';
+import type { VoiceManifest } from '../viewer/src/voiceTiming';
+import { narrationSeconds } from '../viewer/src/voiceTiming';
+import { castNarrator, NARRATOR_VOICES, narrationLines } from '../voice/narration';
 
 const persona = (t: Partial<Persona['traits']>): Persona => ({ traits: { boldness: 5, warmth: 5, honesty: 5, curiosity: 5, patience: 5, ...t } });
 const quality = (id: string) => VOICES.find((v) => v.id === id) as (typeof VOICES)[number];
@@ -94,6 +99,79 @@ describe('the WAV files', () => {
     expect(v.getUint32(40, true)).toBe(8);
     expect(wav.length).toBe(44 + 8);
     expect([v.getInt16(44, true), v.getInt16(46, true), v.getInt16(48, true), v.getInt16(50, true)]).toEqual([0, 16384, -32768, 32767]);
+  });
+});
+
+describe('the narrator', () => {
+  const at = { room: 1, round: 1, step: 'declare' as const };
+  const story: Story = {
+    version: 1,
+    title: 'T',
+    logline: '',
+    director: 'test',
+    thoughts: 'commit',
+    targetMinutes: [3, 7],
+    voiceLines: [],
+    segments: [
+      { type: 'chapter', title: 'Room 2: The Last Door', at },
+      { type: 'narrate', text: 'Alpha  holds the lever.', at },
+      { type: 'show', from: at, to: at, bots: [], caption: 'A caption stays silent', importance: 1 },
+      { type: 'zip', from: at, to: at, text: '' },
+      { type: 'zip', from: at, to: at, text: 'The door opens.' },
+    ],
+  };
+
+  it('says the chapters, the narration and what a fast-forward says; never a caption', () => {
+    expect(narrationLines(story)).toEqual([
+      { segment: 0, kind: 'chapter', text: 'Room 2: The Last Door' },
+      { segment: 1, kind: 'narrate', text: 'Alpha holds the lever.' },
+      { segment: 4, kind: 'zip', text: 'The door opens.' },
+    ]);
+  });
+
+  it('has a voice no bot has, at its natural pitch', () => {
+    expect(castNarrator([]).voice).toBe(NARRATOR_VOICES[0]);
+    expect(castNarrator([NARRATOR_VOICES[0] as string]).voice).toBe(NARRATOR_VOICES[1]);
+    expect(castNarrator(['af_heart']).pitch).toBe(1);
+  });
+
+  it('is heard only where its words still fit the story, and its cards wait for it', async () => {
+    const manifest: VoiceManifest = {
+      version: 1,
+      engine: 'test',
+      cast: {},
+      lines: {},
+      narrator: { voice: 'bm_george', speed: 0.95, pitch: 1 },
+      narration: {
+        0: { file: 'a.wav', seconds: 4, kind: 'chapter', text: 'Room 2: The Last Door' },
+        1: { file: 'b.wav', seconds: 20, kind: 'narrate', text: 'Alpha holds the lever.' },
+        4: { file: 'c.wav', seconds: 3, kind: 'zip', text: 'The door used to open.' }, // the story changed since
+      },
+    };
+    const fits = narrationSeconds(manifest, story.segments);
+    expect([...fits.keys()]).toEqual([0, 1]);
+
+    const config = loadGameConfig();
+    const levels = loadLevels().slice(0, 2);
+    const output = new MemoryOutput();
+    await runGame({
+      seed: 'narrator',
+      levels,
+      agents: ['A', 'B', 'C', 'D', 'E'].map((id) => new ScriptedAgent(id, levels)),
+      ranges: config.hiddenStats,
+      maxTokens: { turn: 700, reflection: 1500, diary: 200 },
+      output,
+      money: null,
+      promptTokenLimit: 60_000,
+    });
+    const game = parseReplay(output.replayLines.join('\n'));
+    const script = buildScript(game, { thoughts: 'commit' });
+    const plain = storyTimeline(story, script, game);
+    const voiced = storyTimeline(story, script, game, undefined, fits);
+    const durOf = (tl: typeof plain, segment: number) => tl.items.find((it) => it.segment === segment)?.dur ?? 0;
+    expect(durOf(voiced, 0)).toBeCloseTo(4.6, 5); // the chapter card waits for its spoken title
+    expect(durOf(voiced, 1)).toBeCloseTo(20.7, 5); // the narration card waits for its line
+    expect(durOf(plain, 1)).toBeLessThan(20);
   });
 });
 

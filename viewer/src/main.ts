@@ -31,7 +31,7 @@ import { Scene } from './render/scene';
 import type { Beat, Script, ThoughtMode } from './script';
 import { beatAt, beatForEvent, buildScript } from './script';
 import type { VoiceManifest } from './voices';
-import { VoicePlayer, voiceSeconds } from './voices';
+import { narrationSeconds, VoicePlayer, voiceSeconds } from './voices';
 import type { Snapshot } from './state';
 import { heightOf, RoomPlayback } from './state';
 import type { Story, StoryItem, StoryTimeline } from './story';
@@ -85,6 +85,8 @@ class Player {
   /** The bots' voices, for games that have been voiced (npm run voice). */
   private readonly voices: VoicePlayer | null;
   private readonly voiceLengths: Map<number, number> | null;
+  /** The narrator's voiced lines that still fit this story, by segment: how long each plays. */
+  private readonly narrationFits: Map<number, number> | null;
   private voicesOn = load<boolean>('voices', true);
   /** The beat or story item whose lines were last queued. */
   private voicedKey = '';
@@ -119,6 +121,7 @@ class Player {
     this.mode = story ? startMode : 'full';
     this.voices = voiceManifest ? new VoicePlayer(runId, voiceManifest) : null;
     this.voiceLengths = voiceManifest ? voiceSeconds(voiceManifest) : null;
+    this.narrationFits = voiceManifest && story ? narrationSeconds(voiceManifest, story.segments) : null;
     this.auras = Object.fromEntries(game.seats.flatMap((s) => (s.colour ? [[s.bot, s.colour.hex]] : [])));
     if (!SPEEDS.includes(this.speed as (typeof SPEEDS)[number])) this.speed = 1;
     root.className = 'app';
@@ -238,7 +241,7 @@ class Player {
     this.transcript.build(this.game, this.script);
     this.transcript.setThoughts(thoughts !== 'off');
     if (story) {
-      this.timeline = storyTimeline(story, this.script, this.game, heard);
+      this.timeline = storyTimeline(story, this.script, this.game, heard, heard && this.narrationFits ? this.narrationFits : undefined);
       this.controls.buildStory(this.timeline, story, this.game);
       this.storyLayer.setStory(story);
     } else {
@@ -589,8 +592,13 @@ class Player {
         if (key !== this.voicedKey) {
           this.voicedKey = key;
           const item = storyAt?.item;
-          if (item?.kind === 'card') this.voices.play(item.card === 'quote' && item.eventId !== null ? [item.eventId] : [], this.speed);
-          else if (!cardUp) this.voices.play(beat.events.map((e) => e.id), this.speed);
+          if (item?.kind === 'card') {
+            // A quote is the bot's own voice; a chapter or a narration is the narrator's.
+            if (item.card === 'quote' && item.eventId !== null) this.voices.play([item.eventId], this.speed);
+            else if (this.narrationFits) this.voices.narrate(item.segment, this.narrationFits, this.speed);
+          } else if (item?.kind === 'zip') {
+            if (this.narrationFits) this.voices.narrate(item.segment, this.narrationFits, this.speed);
+          } else if (!cardUp) this.voices.play(beat.events.map((e) => e.id), this.speed);
         }
       }
     }
