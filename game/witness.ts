@@ -67,6 +67,21 @@ export function describeAction(r: CommandResult): string | null {
       const lever = id(/lever (\w+)/);
       return r.status === 'done' && lever ? `${r.bot} took hold of lever ${lever}` : null;
     }
+    // One bot acting on another: whoever sees the actor sees who did it.
+    case 'trip':
+    case 'steal':
+    case 'give':
+    case 'boost': {
+      if (r.status !== 'done') return null;
+      const target = /\(\s*([A-Za-z])/.exec(r.parsed ?? r.command)?.[1]?.toUpperCase() ?? '?';
+      const coins = /give\([^,]+,\s*(\d+)/.exec(r.parsed ?? '')?.[1];
+      if (kind === 'trip') return `${r.bot} tripped ${target}`;
+      if (kind === 'steal') return `${r.bot} took a coin from ${target}`;
+      if (kind === 'give') return `${r.bot} gave ${target} ${coins ?? 'some'} coin${coins === '1' ? '' : 's'}`;
+      return `${r.bot} launched ${target} into the air`;
+    }
+    case 'block':
+      return r.status === 'done' ? `${r.bot} stood its ground` : null;
     default:
       return null; // waiting, the exit (announced to everyone), unreadable commands: nothing to see
   }
@@ -94,6 +109,7 @@ function placesOf(world: World, e: WorldEvent): Point[] {
       return l ? [centre(l.tx, l.ty)] : [];
     }
     case 'exit':
+    case 'social':
       return [];
   }
 }
@@ -143,7 +159,12 @@ export function witness(before: World, out: ResolveOutput, everyone: readonly st
   for (const e of out.events) {
     const slot = slotOf(e.step);
     let visibleTo: string[];
-    if (e.type === 'exit') {
+    if (e.type === 'social') {
+      // Harm is announced to everyone, without the culprit (spec 7.4: "someone tripped D"). Gifts and boosts
+      // need no announcement: whoever saw them happen has the action in its own "seen" events.
+      if (e.action === 'trip' || e.action === 'steal') result.world.push({ slot, event: { ...e, by: '?' }, visibleTo: [...everyone] });
+      continue;
+    } else if (e.type === 'exit') {
       visibleTo = [...everyone];
     } else {
       const set = new Set(watchersOfPlaces(slot, placesOf(before, e)));

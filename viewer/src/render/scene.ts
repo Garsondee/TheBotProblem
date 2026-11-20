@@ -41,6 +41,8 @@ export interface SceneInput {
   viewAs: string | null;
   wiring: boolean;
   stats: Record<string, BotStats>;
+  /** Bots exiled from this room: out of the physics, but still here, faint, and still talking. */
+  ghosts: ReadonlySet<string>;
 }
 
 interface Particle {
@@ -56,6 +58,8 @@ interface Particle {
 }
 
 export class Scene {
+  /** This frame's ghosts (see SceneInput.ghosts). */
+  private ghosts: ReadonlySet<string> = new Set();
   private readonly ctx: Ctx;
   private dpr = 1;
   private cssW = 0;
@@ -150,6 +154,7 @@ export class Scene {
     const H = room.level.height;
     const space: Space = { X: (tx) => f.x + tx * f.tile, Y: (ty) => f.y + (H - ty) * f.tile, t: f.tile };
     const jumped = input.jumped;
+    this.ghosts = input.ghosts;
     if (jumped) this.particles = [];
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
@@ -191,7 +196,10 @@ export class Scene {
       if (!b) continue;
       const track = snap.tracks?.get(id) ?? null;
       let opacity = 1;
-      if (b.look === 'exited') {
+      const ghost = input.ghosts.has(id);
+      if (ghost) {
+        opacity = 0.34;
+      } else if (b.look === 'exited') {
         if (step === null || !track || track.exitStep === null) continue;
         opacity = Math.max(0, 1 - (step - track.exitStep) / 22);
         if (opacity <= 0) continue;
@@ -203,17 +211,18 @@ export class Scene {
         id,
         look: botLook(id),
         x: b.x / T,
-        y: b.y / T + (b.look === 'exited' ? (1 - opacity) * 0.6 : 0),
+        // A ghost hovers a little above the floor; a bot leaving through the exit rises as it fades.
+        y: b.y / T + (ghost ? 0.12 + Math.sin(time * 1.6 + id.charCodeAt(0)) * 0.05 : b.look === 'exited' ? (1 - opacity) * 0.6 : 0),
         w: PHYS.botWidth / T,
         h: PHYS.botHeight / T,
         vx: (b.vx / T) * 60,
         vy: (b.vy / T) * 60,
-        anim: b.look,
+        anim: ghost ? 'idle' : b.look,
         facing: this.facing.get(id) ?? 1,
         squash: since < 9 ? 1 - since / 9 : 0,
         opacity,
         highlight: input.speaker === id ? speakerGlow : 0,
-        happy: coinSince < 50 || b.look === 'exited' ? 1 : 0,
+        happy: !ghost && (coinSince < 50 || b.look === 'exited') ? 1 : 0,
         time,
       });
     }
@@ -342,7 +351,7 @@ export class Scene {
 
   private drawListenerRing(ctx: Ctx, s: Space, snap: Snapshot, id: string, time: number): void {
     const b = snap.bodies[id];
-    if (!b || b.look === 'exited') return;
+    if (!b || (b.look === 'exited' && !this.ghosts.has(id))) return;
     const cx = s.X((b.x + PHYS.botWidth / 2) / T);
     const cy = s.Y((b.y + PHYS.botHeight / 2) / T);
     ctx.save();
@@ -394,8 +403,10 @@ export class Scene {
 
   private drawSpotlight(ctx: Ctx, snap: Snapshot, speaker: string | null, dt: number, jumped: boolean): void {
     const b = speaker ? snap.bodies[speaker] : undefined;
-    const target = b && b.look !== 'exited' ? 1 : 0;
-    if (b && b.look !== 'exited') {
+    // A ghost still speaks, so it still gets the light when it does.
+    const here = b !== undefined && (b.look !== 'exited' || (speaker !== null && this.ghosts.has(speaker)));
+    const target = here ? 1 : 0;
+    if (b && here) {
       const p = this.toScreen(b.x + PHYS.botWidth / 2, b.y + PHYS.botHeight * 0.6);
       if (jumped || this.spot.a < 0.02 || this.spot.id !== speaker) {
         this.spot.x = jumped || this.spot.a < 0.02 ? p.x : approach(this.spot.x, p.x, dt, 12);

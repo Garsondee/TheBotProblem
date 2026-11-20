@@ -5,7 +5,11 @@ import { loadCast, loadGameConfig, loadPrices } from '../harness/config';
 import { PRICES } from './helpers';
 
 const game = loadGameConfig();
-const shapes = gameCallShapes(game.estimate, game.maxTokens);
+// The spec's own assumptions, pinned here so the hand-worked sums below test the arithmetic,
+// however config/game.json is later calibrated to measured games.
+const SPEC_ASSUMPTIONS = { ...game.estimate, turnOutputTokens: 400, reflectionOutputTokens: 1000, diaryOutputTokens: 150, finalMessageOutputTokens: 280 };
+const SPEC_MAX_TOKENS = { turn: 450, reflection: 1500, diary: 200, finalMessage: 350 };
+const shapes = gameCallShapes(SPEC_ASSUMPTIONS, SPEC_MAX_TOKENS);
 const haikuSeat: SeatPlan = { botId: 'A', model: 'claude-haiku-5-5', provider: 'anthropic', caching: 'explicit' };
 const haiku = PRICES['claude-haiku-5-5']!;
 
@@ -45,6 +49,36 @@ describe('estimateSeat', () => {
     const capped = estimateSeat({ ...seat, priceCeiling: { input: 0.15, output: 0.3 } }, listed, shapes, 10);
     expect(capped.expectedUsd).toBeCloseTo(plain.expectedUsd, 12);
     expect(capped.worstCaseUsd).toBeGreaterThan(plain.worstCaseUsd);
+  });
+
+  it('counts a provider’s own caching at its measured share, in the expected cost only', () => {
+    const listed = { provider: 'openrouter' as const, input: 0.25, output: 1.5, cacheRead: 0.025 };
+    const seat: SeatPlan = { botId: 'E', model: 'm', provider: 'openrouter', caching: 'automatic' };
+    const plain = estimateSeat(seat, listed, shapes, 10);
+    const measured = estimateSeat({ ...seat, measuredCacheShare: 0.4 }, listed, shapes, 10);
+    // 40% of every prompt token moves from $0.25 to $0.025 a million.
+    const promptTokens = shapes.reduce((n, s) => n + s.callsPerGame * s.promptTokens, 0);
+    expect(plain.expectedUsd - measured.expectedUsd).toBeCloseTo((promptTokens * 0.4 * (0.25 - 0.025)) / 1e6, 2);
+    expect(measured.worstCaseUsd).toBe(plain.worstCaseUsd);
+    expect(measured.notes.join(' ')).toMatch(/40%/);
+  });
+
+  it("counts prompts in the model's own tokens for the expected cost, and Claude's (the larger) for the worst case", () => {
+    const listed = { provider: 'openrouter' as const, input: 0.25, output: 1.5 };
+    const seat: SeatPlan = { botId: 'E', model: 'm', provider: 'openrouter', caching: 'none' };
+    const plain = estimateSeat(seat, listed, shapes, 10);
+    const own = estimateSeat({ ...seat, tokenRatio: 0.64 }, listed, shapes, 10);
+    const promptUsd = shapes.reduce((n, s) => n + s.callsPerGame * s.promptTokens, 0) * 0.25 / 1e6;
+    expect(plain.expectedUsd - own.expectedUsd).toBeCloseTo(promptUsd * 0.36, 3);
+    expect(own.worstCaseUsd).toBe(plain.worstCaseUsd);
+  });
+
+  it('prices calls that can never read the cache as writing it every time', () => {
+    const fresh = shapes.map((s) => (s.kind === 'reflection' ? { ...s, freshCache: true } : s));
+    const usual = estimateSeat(haikuSeat, haiku, shapes, 10);
+    const always = estimateSeat(haikuSeat, haiku, fresh, 10);
+    // 6 reflections move their 5,000 cached tokens from a read ($0.01) to a write ($0.125).
+    expect(always.expectedUsd - usual.expectedUsd).toBeCloseTo((6 * 5000 * (0.125 - 0.01)) / 1e6, 6);
   });
 });
 

@@ -51,8 +51,9 @@ export interface Move {
  */
 export function predictionWorld(world: World, botId: string, seen: Perception): World {
   const copy = cloneWorld(world);
-  const keep = new Set([botId, ...seen.bots]);
-  copy.bots = copy.bots.filter((b) => keep.has(b.id) && !b.exited);
+  const keep = new Set(seen.bots);
+  // The viewer always stays (even a ghost, out of the physics, still looks around); others only if seen and present.
+  copy.bots = copy.bots.filter((b) => b.id === botId || (keep.has(b.id) && !b.exited));
   copy.crates = copy.crates.filter((c) => seen.crates.includes(c.id));
   const phys = physicsFor(NOMINAL_STATS);
   for (const b of copy.bots) {

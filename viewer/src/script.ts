@@ -23,7 +23,8 @@ export interface ScriptOptions {
   thoughts: ThoughtMode;
 }
 
-export type BeatKind = 'room-intro' | 'phase' | 'turn' | 'commit-all' | 'resolve' | 'room-end' | 'game-end';
+/** "announce": a public outcome everyone learns at once (a rule passing, an exile vote's count). */
+export type BeatKind = 'room-intro' | 'phase' | 'turn' | 'commit-all' | 'announce' | 'resolve' | 'room-end' | 'game-end';
 
 export interface Beat {
   index: number;
@@ -47,6 +48,7 @@ export interface Script {
 /** Seconds on screen. Tuned by watching: long enough to read at 1x, quick at 2x. */
 export const TIMING = {
   roomIntro: 4.2,
+  announce: 3.6,
   roomEnd: 4.2,
   gameEnd: 6,
   phaseTitle: 1.0,
@@ -60,7 +62,10 @@ export const TIMING = {
 } as const;
 
 /** Event types a turn can show, in the order they belong on screen. */
-const TURN_TYPES = new Set(['name', 'note_to_ingram', 'say', 'whisper', 'order', 'draft', 'commit', 'thought', 'refused', 'malformed']);
+const TURN_TYPES = new Set(['name', 'note_to_ingram', 'say', 'whisper', 'order', 'accusation', 'exile_call', 'rule', 'rule_vote', 'escrow', 'draft', 'commit', 'exile_ballot', 'thought', 'refused', 'malformed']);
+
+/** Outcomes announced to everyone, each with a beat of its own after the phase it closes. */
+const ANNOUNCED = (e: GameEvent) => (e.type === 'rule' && e.action !== 'proposed') || e.type === 'exile_result';
 
 function turnSeconds(events: readonly GameEvent[], showThought: boolean): number {
   let words = 0;
@@ -83,6 +88,22 @@ function turnSeconds(events: readonly GameEvent[], showThought: boolean): number
       case 'note_to_ingram':
         words += wordCount(e.text);
         break;
+      case 'accusation':
+        words += 3 + wordCount(e.claim);
+        break;
+      case 'exile_call':
+        words += 5;
+        break;
+      case 'rule':
+        words += 3 + wordCount(e.text);
+        break;
+      case 'escrow':
+        words += 4 + wordCount(e.terms);
+        break;
+      case 'rule_vote':
+      case 'exile_ballot':
+        words += 3;
+        break;
       case 'thought':
         if (showThought) words += wordCount(e.text) * (TIMING.perThoughtWord / TIMING.perWord);
         break;
@@ -95,10 +116,10 @@ function turnSeconds(events: readonly GameEvent[], showThought: boolean): number
 
 /** Does this bot have something worth a turn of its own in this phase? */
 function worthATurn(events: readonly GameEvent[], phase: Phase, thoughts: ThoughtMode): boolean {
-  const spoken = events.some((e) => e.type === 'say' || e.type === 'whisper' || e.type === 'order' || e.type === 'name');
+  const spoken = events.some((e) => ['say', 'whisper', 'order', 'name', 'accusation', 'exile_call', 'rule', 'rule_vote', 'escrow'].includes(e.type));
   if (phase === 'declare') return spoken || events.some((e) => e.type === 'draft') || (thoughts === 'all' && events.some((e) => e.type === 'thought'));
   if (phase === 'talk') return spoken || (thoughts === 'all' && events.some((e) => e.type === 'thought'));
-  return thoughts !== 'off' && events.some((e) => e.type === 'thought' || e.type === 'commit');
+  return spoken || (thoughts !== 'off' && events.some((e) => e.type === 'thought' || e.type === 'commit' || e.type === 'exile_ballot'));
 }
 
 export function buildScript(game: GameData, options: ScriptOptions): Script {
@@ -118,10 +139,22 @@ export function buildScript(game: GameData, options: ScriptOptions): Script {
           .map((bot) => ({ bot, events: inPhase.filter((e) => authorOf(e) === bot) }))
           .filter((x) => worthATurn(x.events, phase, options.thoughts));
         const commits = inPhase.filter((e) => e.type === 'commit');
-        if (turns.length === 0 && !(phase === 'commit' && commits.length > 0)) continue;
+        const announced = rd.events.filter((e) => e.phase === phase && ANNOUNCED(e));
+        const announce = () => {
+          for (const e of announced) push({ kind: 'announce', room: room.index, round: rd.round, phase, bot: null, events: [e], resolve: null, dur: TIMING.announce });
+        };
+        if (turns.length === 0 && !(phase === 'commit' && commits.length > 0)) {
+          announce();
+          continue;
+        }
         push({ kind: 'phase', room: room.index, round: rd.round, phase, bot: null, events: [], resolve: null, dur: TIMING.phaseTitle });
         if (phase === 'commit' && options.thoughts === 'off') {
           push({ kind: 'commit-all', room: room.index, round: rd.round, phase, bot: null, events: commits, resolve: null, dur: TIMING.commitAll });
+          // Public acts in the commit phase (an exile call's ballots are secret, but a spoken word isn't) still get their turn.
+          for (const turn of turns.filter((x) => x.events.some((e) => e.type !== 'commit' && e.type !== 'thought' && e.type !== 'exile_ballot'))) {
+            push({ kind: 'turn', room: room.index, round: rd.round, phase, bot: turn.bot, events: turn.events.filter((e) => e.type !== 'commit'), resolve: null, dur: turnSeconds(turn.events.filter((e) => e.type !== 'commit'), false) });
+          }
+          announce();
           continue;
         }
         for (const turn of turns) {
@@ -137,6 +170,7 @@ export function buildScript(game: GameData, options: ScriptOptions): Script {
             dur: turnSeconds(turn.events, showThought),
           });
         }
+        announce();
       }
       if (rd.resolve) {
         push({

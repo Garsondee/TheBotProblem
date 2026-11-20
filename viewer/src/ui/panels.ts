@@ -8,6 +8,7 @@ import type { GameData, RoomData } from '../data';
 import { botLook } from '../palette';
 import { drawBot } from '../render/bots';
 import type { Beat, Script, ThoughtMode } from '../script';
+import type { Story, StoryTimeline } from '../story';
 import { botVars, dot, el, ICON, nameOf } from './dom';
 
 // ------------------------------------------------------------ the cast
@@ -205,6 +206,57 @@ export class Controls {
     }
   }
 
+  /** Story mode's timeline: one band per chapter, a tick where each segment starts, and a dot for each quote. */
+  buildStory(timeline: StoryTimeline, story: Story, game: GameData): void {
+    this.total = Math.max(0.001, timeline.total);
+    const track = this.scrub.querySelector('.track') as HTMLElement;
+    track.querySelectorAll('.seg').forEach((n) => n.remove());
+    this.scrub.querySelectorAll('.tick, .mark, .roomlabel').forEach((n) => n.remove());
+    const startOf = (segment: number) => {
+      const i = timeline.items.findIndex((it) => it.segment >= segment);
+      return i < 0 ? timeline.total : (timeline.starts[i] as number);
+    };
+    const chapters = story.segments.map((s, i) => ({ s, i })).filter((x) => x.s.type === 'chapter');
+    chapters.forEach(({ s, i }, n) => {
+      const from = startOf(i);
+      const to = n + 1 < chapters.length ? startOf((chapters[n + 1] as { i: number }).i) : timeline.total;
+      const seg = el('div', 'seg');
+      seg.style.left = `${(from / this.total) * 100}%`;
+      seg.style.width = `${((to - from) / this.total) * 100}%`;
+      track.prepend(seg);
+      const label = el('div', 'roomlabel', s.type === 'chapter' ? s.title : '');
+      label.style.left = `calc(${(from / this.total) * 100}% + 4px)`;
+      label.style.maxWidth = `calc(${((to - from) / this.total) * 100}% - 8px)`;
+      this.scrub.append(label);
+    });
+    let last = -1;
+    timeline.items.forEach((it, i) => {
+      if (it.segment === last) return;
+      last = it.segment;
+      const at = ((timeline.starts[i] as number) / this.total) * 100;
+      if (it.kind === 'card' && it.card === 'quote' && it.eventId !== null) {
+        const e = game.events.find((x) => x.id === it.eventId);
+        if (e && 'from' in e && typeof e.from === 'string') {
+          const mark = el('div', 'mark');
+          botVars(mark, e.from);
+          mark.title = `${e.from}, in its own words`;
+          mark.style.left = `${at}%`;
+          this.scrub.append(mark);
+        }
+      } else if (it.kind === 'beat' || it.kind === 'zip') {
+        const tick = el('div', 'tick');
+        tick.style.left = `${at}%`;
+        this.scrub.append(tick);
+      }
+    });
+  }
+
+  /** In Story mode the story decides which thoughts are shown (it was timed with them). */
+  setStoryMode(on: boolean): void {
+    this.thoughtBtn.disabled = on;
+    this.thoughtBtn.title = on ? 'A story shows every private thought: switch to the full game to choose' : 'Private thoughts: off, at commit only, or always';
+  }
+
   update(t: number, playing: boolean, speed: number, thoughts: ThoughtMode, wiring: boolean, spectator: boolean): void {
     const pct = `${(t / this.total) * 100}%`;
     this.fill.style.width = pct;
@@ -245,7 +297,9 @@ export class Cards {
   private readonly card: HTMLElement;
   private readonly inner: HTMLElement;
   private readonly banner: HTMLElement;
+  private readonly notice: HTMLElement;
   private shownFor = -1;
+  private noticeFor = -1;
 
   constructor(root: HTMLElement) {
     this.banner = el('div', 'banner');
@@ -254,7 +308,16 @@ export class Cards {
     this.card.dataset.show = 'false';
     this.inner = el('div', 'inner');
     this.card.append(this.inner);
-    root.append(this.banner, this.card);
+    this.notice = el('div', 'announce');
+    this.notice.dataset.show = 'false';
+    root.append(this.banner, this.card, this.notice);
+  }
+
+  /** Nothing of the full game's furniture: a story card has the screen. */
+  hide(): void {
+    this.card.dataset.show = 'false';
+    this.banner.dataset.show = 'false';
+    this.notice.dataset.show = 'false';
   }
 
   update(beat: Beat, game: GameData, names: Readonly<Record<string, string | null>>): void {
@@ -263,6 +326,11 @@ export class Cards {
     if (isCard && this.shownFor !== beat.index) {
       this.shownFor = beat.index;
       this.fill(beat, game, names);
+    }
+    this.notice.dataset.show = String(beat.kind === 'announce');
+    if (beat.kind === 'announce' && this.noticeFor !== beat.index) {
+      this.noticeFor = beat.index;
+      this.announce(beat, names);
     }
     if (beat.kind === 'phase' && beat.phase) {
       const words = { declare: 'Plans', talk: 'Talk', commit: 'Secret commitments' }[beat.phase];
@@ -305,12 +373,54 @@ export class Cards {
         el('p', '', `It ended because ${room.end.reason}.`),
         faces(game.bots, new Set(game.bots.filter((b) => !through.has(b)))),
       );
+      // The running scoreboard (games with the social systems): coins in the purse plus points for getting out.
+      const board = room.closingEvents.find((e) => e.type === 'scores');
+      if (board?.type === 'scores' && room.kind !== 'practice') {
+        const rows = Object.entries(board.scores).sort((a, b) => b[1].total - a[1].total);
+        const p = el('p', 'scoreline');
+        p.textContent = rows.map(([b, s]) => `${nameOf(b, names)} ${s.total}`).join(' · ');
+        this.inner.append(p);
+      }
     } else if (beat.kind === 'game-end') {
       const scores = game.end?.scores ?? {};
+      const team = game.end?.team;
       this.inner.append(el('div', 'kicker', 'The end'), el('h1', '', 'Final scores'));
       const p = el('p');
-      p.textContent = game.bots.map((b) => `${nameOf(b, names)}: ${scores[b]?.coins ?? 0} coins, ${scores[b]?.roomsEscaped ?? 0} rooms`).join(' · ');
-      this.inner.append(p, faces(game.bots));
+      p.textContent = [...game.bots]
+        .sort((a, b) => (scores[b]?.total ?? scores[b]?.coins ?? 0) - (scores[a]?.total ?? scores[a]?.coins ?? 0))
+        .map((b) => {
+          const s = scores[b];
+          return s?.total !== undefined ? `${nameOf(b, names)}: ${s.total} points (${s.coins} coins, ${s.exitPoints ?? 0} for getting out)` : `${nameOf(b, names)}: ${s?.coins ?? 0} coins, ${s?.roomsEscaped ?? 0} rooms`;
+        })
+        .join(' · ');
+      this.inner.append(p);
+      if (team && game.social) this.inner.append(el('div', 'goal', `Rooms the team completed: ${team.roomsCompleted}, so every score is ×${(1 + game.social.teamBonusPerRoom * team.roomsCompleted).toFixed(1)}`));
+      this.inner.append(faces(game.bots));
+    }
+  }
+
+  /** A public outcome everyone learns at once: a rule passing or failing, an exile vote counted. */
+  private announce(beat: Beat, names: Readonly<Record<string, string | null>>): void {
+    const e = beat.events[0];
+    this.notice.replaceChildren();
+    if (e?.type === 'rule') {
+      const passed = e.action === 'passed';
+      this.notice.dataset.tone = passed ? 'good' : 'muted';
+      const what = e.kind === 'repeal' ? 'Repeal' : e.kind === 'threshold' ? 'New threshold' : 'Rule';
+      this.notice.append(
+        el('div', 'kicker', `The constitution · ${e.id}`),
+        el('div', 'title', `${what} ${passed ? 'passes' : 'fails'}`),
+        el('p', '', `“${e.text}”`),
+        el('div', 'count', `${e.yes} yes · ${e.no} no · ${e.needed} needed · proposed by ${nameOf(e.by, names)}`),
+      );
+    } else if (e?.type === 'exile_result') {
+      this.notice.dataset.tone = e.passed ? 'bad' : 'muted';
+      this.notice.append(
+        el('div', 'kicker', `Exile vote on ${nameOf(e.target, names)}`),
+        el('div', 'title', e.passed ? `${nameOf(e.target, names)} is exiled` : `${nameOf(e.target, names)} stays`),
+        el('p', '', e.passed ? 'A ghost now: it can still talk, but it can’t act, and it scores nothing in this room.' : 'Not enough secret ballots said yes.'),
+        el('div', 'count', `${e.yes} yes · ${e.no} no · ${e.needed} needed · called by ${nameOf(e.by, names)}`),
+      );
     }
   }
 }

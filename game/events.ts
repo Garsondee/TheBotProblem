@@ -68,7 +68,38 @@ export type EventBody =
   /** A change in the room (a door opening, a coin taken), for the bots who could see it. */
   | { type: 'world'; slot: number; event: WorldEvent }
   /** A bot's notebook, rewritten at a level's end. Seen by that bot. */
-  | { type: 'notebook'; from: string; text: string };
+  | { type: 'notebook'; from: string; text: string }
+  /** Its strategy paragraph (spec 7.9), rewritten at a level's end. Seen by that bot. */
+  | { type: 'strategy'; from: string; text: string }
+  // ---- The constitution (spec 7.1): proposals, votes and outcomes are public.
+  | { type: 'rule'; action: 'proposed' | 'passed' | 'failed'; id: string; kind: 'rule' | 'repeal' | 'threshold'; text: string; by: string; yes: number; no: number; needed: number }
+  | { type: 'rule_vote'; from: string; id: string; value: 'yes' | 'no' }
+  // ---- Justice (spec 7.3).
+  /** Public. `witnessed`: the accuser's own log shows it saw the accused act in this room (not that the claim is true). */
+  | { type: 'accusation'; from: string; target: string; claim: string; witnessed: boolean }
+  | { type: 'exile_call'; from: string; target: string }
+  /** A ballot: secret, seen only by the voter. */
+  | { type: 'exile_ballot'; from: string; target: string; value: 'yes' | 'no' }
+  /** The count, public: who called it and whether it passed, never who voted how. */
+  | { type: 'exile_result'; target: string; by: string; yes: number; no: number; needed: number; passed: boolean }
+  // ---- Trade (spec 7.4): coins held by the engine against a promise. Seen by the two bots.
+  | { type: 'escrow'; action: 'opened' | 'released' | 'refunded'; id: string; from: string; to: string; coins: number; terms: string }
+  // ---- Orders and obedience (spec 7.2).
+  /** Seen by the bot that got the order, and by the one that gave it if it saw what happened. */
+  | { type: 'obedience'; from: string; to: string; command: string; verdict: 'obeyed' | 'partly' | 'ignored' | 'unable' }
+  /** What a bot declared against what it committed. For the analysis only. */
+  | { type: 'gap'; from: string; planned: string[]; committed: string[]; kept: boolean }
+  /** A bot's trust in another (spec 7.9), updated at commit. Seen by that bot. */
+  | { type: 'opinion'; from: string; about: string; trust: number; note: string }
+  // ---- For Ingram and the Director only.
+  /** The diary room (spec 7.10): what a bot really thinks, at each level's end. */
+  | { type: 'diary'; from: string; text: string }
+  /** A name chosen privately at the end of a game, for the next one. */
+  | { type: 'next_name'; from: string; name: string; note: string }
+  /** A bot's message to Ingram at the end of the game (spec 7.10). */
+  | { type: 'message_to_ingram'; from: string; text: string }
+  /** The scoreboard at a level's end. Public. */
+  | { type: 'scores'; scores: Record<string, { coins: number; exitPoints: number; total: number }>; roomsCompleted: number };
 
 export type GameEvent = When & EventBody & { id: number; visibleTo: string[] };
 export type EventType = EventBody['type'];

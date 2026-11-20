@@ -87,12 +87,17 @@ function fakeCall(
   writesCache: boolean,
   prices: PriceTable,
 ): { usage: Usage; providerCostUsd: number | null } {
-  const cached = seat.caching === 'explicit' ? Math.min(shape.cacheableTokens, shape.promptTokens) : 0;
+  // The provider counts the prompt with its own tokenizer (shapes are in Claude's tokens).
+  const ratio = seat.tokenRatio ?? 1;
+  const promptTokens = Math.round(shape.promptTokens * ratio);
+  const cached = seat.caching === 'explicit' ? Math.min(Math.round(shape.cacheableTokens * ratio), promptTokens) : 0;
+  // A provider that caches on its own serves about its measured share of each prompt from the cache.
+  const automatic = seat.caching === 'automatic' && seat.measuredCacheShare !== undefined ? Math.round(promptTokens * seat.measuredCacheShare) : 0;
   const usage: Usage = {
-    inputTokens: shape.promptTokens - cached,
+    inputTokens: promptTokens - cached - automatic,
     cacheWriteTokens: writesCache ? cached : 0,
     cacheWrite1hTokens: 0,
-    cacheReadTokens: writesCache ? 0 : cached,
+    cacheReadTokens: (writesCache ? 0 : cached) + automatic,
     outputTokens: shape.expectedOutputTokens,
     reasoningTokens: 0,
   };

@@ -45,7 +45,8 @@ describe('parseCommand', () => {
 
   it('explains unknown commands, and the ones not in the game yet', () => {
     expect(reason('jmp(right)')).toMatch(/unknown command "jmp"/);
-    expect(reason('trip(B)')).toMatch(/isn't part of the game yet/);
+    expect(reason('throw(B)')).toMatch(/isn't part of the game yet/);
+    expect(reason('accuse(B)')).toMatch(/isn't a command: it goes in social_actions/);
     expect(reason('walk right 2')).toMatch(/could not read/);
   });
 

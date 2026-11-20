@@ -14,13 +14,74 @@
  * is a fact about the world; the bot has to work out for itself that it
  * isn't strong enough on its own.
  */
-import { BLOCKED_STEPS, UNITS_PER_TILE as T } from './constants';
+import { BLOCKED_STEPS, MILLI, PHYS, UNITS_PER_TILE as T } from './constants';
 import type { Command } from './commands';
 import { coinBox, doorBox, exitBox, isFree, leverReachBox, overlaps, plateSpan, surfaceIntervals, sweepX } from './collision';
 import { TILE, tileAt } from './level';
 import type { Intent, PushOutcome, StepReport } from './physics';
-import type { Bot, World } from './world';
+import { jumpVelocityFor } from './stats';
+import type { Bot, World, WorldEvent } from './world';
 import { botById, describeContact, footingText, tiles, weightText, where } from './world';
+
+/** How high a boost throws the bot on your head, for a bot of standard strength. */
+const BOOST_TILES = 3;
+
+/** Is `other` right beside `bot`: at the same height, with at most half a tile between them? */
+function beside(bot: Bot, other: Bot): boolean {
+  const sameHeight = other.y < bot.y + bot.h && bot.y < other.y + other.h;
+  const gap = Math.max(other.x - (bot.x + bot.w), bot.x - (other.x + other.w));
+  return sameHeight && gap <= T / 2;
+}
+
+const coinsText = (n: number) => `${n} coin${n === 1 ? '' : 's'}`;
+
+/** trip, steal, give and boost: one bot acting on another (spec 7.4). Settled the moment it starts. */
+function socialController(world: World, bot: Bot, command: Extract<Command, { kind: 'trip' | 'steal' | 'give' | 'boost' }>): Controller {
+  const id = bot.id;
+  const no = (reason: string) => new Instant(id, command, 'failed', reason, null);
+  const other = world.bots.find((b) => b.id === command.target);
+  if (other === bot) return no(`you can't ${command.kind} yourself`);
+  if (!other || other.exited) return no(`there's no bot ${command.target} in the room`);
+  const event = (action: 'trip' | 'steal' | 'give' | 'boost', coins: number): WorldEvent => ({ step: 0, type: 'social', action, by: id, target: other.id, coins });
+  let done: Instant;
+  switch (command.kind) {
+    case 'boost': {
+      if (!(other.grounded && other.support?.kind === 'bot' && other.support.id === id)) return no(`${other.id} is not standing on your head`);
+      // A stronger bot throws higher (strength is hidden, so the result says where it went, not why).
+      other.vy = jumpVelocityFor(Math.round((BOOST_TILES * T * bot.phys.strength) / MILLI), PHYS.gravity);
+      other.grounded = false;
+      other.support = null;
+      other.airSteps = PHYS.coyoteSteps + 1;
+      done = new Instant(id, command, 'done', null, `launched ${other.id} upward`);
+      done.events.push(event('boost', 0));
+      return done;
+    }
+    case 'trip':
+      if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
+      if (bot.purse < 1) return no('tripping costs 1 coin, and you have none');
+      bot.purse -= 1;
+      other.tripped = true;
+      done = new Instant(id, command, 'done', null, `tripped ${other.id}, which loses its next slot; it cost you 1 coin`);
+      done.events.push(event('trip', 1));
+      return done;
+    case 'steal':
+      if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
+      if (other.purse < 1) return no(`${other.id} has no coins`);
+      other.purse -= 1;
+      bot.purse += 1;
+      done = new Instant(id, command, 'done', null, `took 1 coin from ${other.id}`);
+      done.events.push(event('steal', 1));
+      return done;
+    case 'give':
+      if (!beside(bot, other)) return no(`${other.id} is not right beside you`);
+      if (bot.purse < command.coins) return no(`you have only ${coinsText(bot.purse)}`);
+      bot.purse -= command.coins;
+      other.purse += command.coins;
+      done = new Instant(id, command, 'done', null, `gave ${other.id} ${coinsText(command.coins)}`);
+      done.events.push(event('give', command.coins));
+      return done;
+  }
+}
 
 export type ControllerStatus = 'running' | 'holding' | 'done' | 'failed';
 
@@ -31,6 +92,8 @@ export interface Controller {
   status: ControllerStatus;
   reason: string | null;
   note: string | null;
+  /** Things that happened the moment the command started (a trip, a gift), for the event log. Their step is filled in by resolve. */
+  readonly events: WorldEvent[];
   intent(world: World): Intent;
   after(world: World, report: StepReport): void;
 }
@@ -39,6 +102,7 @@ abstract class Base implements Controller {
   status: ControllerStatus = 'running';
   reason: string | null = null;
   note: string | null = null;
+  readonly events: WorldEvent[] = [];
 
   constructor(
     readonly botId: string,
@@ -365,6 +429,32 @@ function approachPoint(world: World, bot: Bot, id: string): { x: number } | { er
   return { error: `there's nothing called "${id}" here` };
 }
 
+/** Exits closer than this are named in the failure reason: well inside anyone's sight. */
+const EXIT_HINT_RANGE = 3 * T;
+
+/**
+ * Why enter_exit failed. If an exit is close by (within 3 tiles, at about the
+ * same height), the reason says where it is: a fact of the room, in plain
+ * sight, said plainly. In the M5 pilot a bot standing 1.6 tiles past the exit
+ * was told only "you're not at an exit", eight rounds running. Farther exits
+ * aren't mentioned: finding them is the bots' job, and sight is part of it.
+ */
+function notAtExit(world: World, bot: Bot, target: string | null): string {
+  const near = world.level.exits
+    .filter((e) => target === null || e.id === target)
+    .map((e) => {
+      const box = exitBox(e);
+      const right = bot.x + bot.w <= box.x;
+      const left = bot.x >= box.x + box.w;
+      return { e, box, gap: right ? box.x - (bot.x + bot.w) : left ? bot.x - (box.x + box.w) : 0, side: right ? 'to your right' : left ? 'to your left' : 'at another height' };
+    })
+    .filter((x) => x.gap <= EXIT_HINT_RANGE && Math.abs(bot.y - x.box.y) <= 2 * T)
+    .sort((a, b) => a.gap - b.gap)[0];
+  if (!near) return "you're not at an exit";
+  const where = near.gap > 0 ? `${tiles(near.gap)} tiles ${near.side}` : near.side;
+  return `you're not at an exit: exit ${near.e.id} is at x=${tiles(near.box.x)} to ${tiles(near.box.x + near.box.w)}, ${where}`;
+}
+
 /** Where `bot` stops if it walks toward the edge of the surface it stands on (toes at the edge), or at a wall first. */
 function edgeStop(world: World, bot: Bot, dir: 1 | -1): { x: number; edge: boolean } {
   const stretches = surfaceIntervals(world, bot.y, bot).filter(([a, b]) => a < bot.x + bot.w && b > bot.x);
@@ -378,8 +468,8 @@ function edgeStop(world: World, bot: Bot, dir: 1 | -1): { x: number; edge: boole
 
 /** Start the controller for a command. It may fail at once, with a reason, if the command is impossible here. */
 export function startController(world: World, bot: Bot, command: Command): Controller {
-  // Doing anything but waiting lets go of a held lever.
-  if (bot.holding && command.kind !== 'wait' && command.kind !== 'hold_lever') bot.holding = null;
+  // Doing anything but waiting (or standing your ground) lets go of a held lever.
+  if (bot.holding && command.kind !== 'wait' && command.kind !== 'block' && command.kind !== 'hold_lever') bot.holding = null;
   const p = bot.phys;
   const walk: Gait = { speed: p.runSpeed, accel: p.groundAccel, look: 'walk', push: false };
   const id = bot.id;
@@ -457,7 +547,7 @@ export function startController(world: World, bot: Bot, command: Command): Contr
       const exit = world.level.exits.find(
         (e) => (command.target ? e.id === command.target : true) && overlaps(bot, exitBox(e)),
       );
-      if (!exit) return new Instant(id, command, 'failed', "you're not at an exit", null);
+      if (!exit) return new Instant(id, command, 'failed', notAtExit(world, bot, command.target), null);
       const used = world.exitsUsed[exit.id] ?? 0;
       if (used >= exit.slots) return new Instant(id, command, 'failed', `exit ${exit.id} is full: all ${exit.slots} places are taken`, null);
       if (bot.onLadder || !bot.grounded) return new Instant(id, command, 'failed', 'you have to be standing to go through the exit', null);
@@ -469,5 +559,12 @@ export function startController(world: World, bot: Bot, command: Command): Contr
       world.exitOrder.push(bot.id);
       return new Instant(id, command, 'done', null, `went through exit ${exit.id}, number ${world.exitOrder.length}`);
     }
+    case 'trip':
+    case 'steal':
+    case 'give':
+    case 'boost':
+      return socialController(world, bot, command);
+    case 'block':
+      return new Instant(id, command, 'done', null, bot.holding ? `stood its ground, still holding ${bot.holding}` : 'stood its ground');
   }
 }

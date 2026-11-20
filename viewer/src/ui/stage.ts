@@ -41,7 +41,7 @@ export class StageText {
   private readonly leaders = new Map<string, SVGLineElement>();
   private readonly linkPath: SVGPathElement;
   private readonly results = new Map<string, HTMLElement>();
-  private link: { from: string; to: string; kind: 'whisper' | 'order' } | null = null;
+  private link: { from: string; to: string; kind: 'whisper' | 'order' | 'accuse' } | null = null;
 
   constructor(
     private readonly layer: HTMLElement,
@@ -120,6 +120,21 @@ export class StageText {
 
   // ------------------------------------------------------------ the beat's words
 
+  /** Take every bubble down (a story card or a fast-forward has the screen). */
+  clear(): void {
+    if (this.beatIndex === -1) return;
+    this.beatIndex = -1;
+    for (const s of this.stacks) {
+      s.node.dataset.exit = 'true';
+      s.stem.remove();
+      const node = s.node;
+      window.setTimeout(() => node.remove(), 140);
+    }
+    this.stacks = [];
+    this.link = null;
+    this.linkPath.setAttribute('visibility', 'hidden');
+  }
+
   /** Build what this beat says (only when the beat changes). */
   showBeat(beat: Beat | null, game: GameData, room: RoomData | null, names: Readonly<Record<string, string | null>>, thoughts: ThoughtMode): void {
     if (!beat || beat.index === this.beatIndex) return;
@@ -135,8 +150,9 @@ export class StageText {
     if (beat.kind === 'turn' && beat.bot) {
       const node = this.turnStack(beat, room, names, thoughts);
       if (node) this.addStack(beat.bot, node);
-      const w = beat.events.find((e) => e.type === 'whisper' || e.type === 'order');
+      const w = beat.events.find((e) => e.type === 'whisper' || e.type === 'order' || e.type === 'accusation' || e.type === 'exile_call');
       if (w && (w.type === 'whisper' || w.type === 'order')) this.link = { from: w.from, to: w.to, kind: w.type };
+      else if (w && (w.type === 'accusation' || w.type === 'exile_call')) this.link = { from: w.from, to: w.target, kind: 'accuse' };
     } else if (beat.kind === 'commit-all') {
       for (const e of beat.events) {
         if (e.type !== 'commit') continue;
@@ -204,6 +220,36 @@ export class StageText {
         const b = el('div', 'bubble order');
         b.append(who(`orders ${nameOf(e.to, names)}`), el('code', 'cmd', e.command));
         node.append(b);
+      } else if (e.type === 'accusation') {
+        // Public. "saw it" only means its own log shows it saw the accused act here, not that the claim is true.
+        const b = el('div', 'bubble accuse');
+        b.append(who(`accuses ${nameOf(e.target, names)}${e.witnessed ? ' · was there' : ''}`), el('div', '', e.claim));
+        node.append(b);
+      } else if (e.type === 'exile_call') {
+        const b = el('div', 'bubble accuse');
+        b.append(who('calls an exile vote'), el('div', 'motion', `Exile ${nameOf(e.target, names)}?`));
+        node.append(b);
+      } else if (e.type === 'rule' && e.action === 'proposed') {
+        const b = el('div', 'bubble rule');
+        const what = e.kind === 'repeal' ? 'proposes a repeal' : e.kind === 'threshold' ? 'proposes a new voting threshold' : 'proposes a rule';
+        b.append(who(`${what} · ${e.id}`), el('div', '', e.text));
+        node.append(b);
+      }
+    }
+    // Votes, trades and ballots: small chips under the words.
+    for (const e of ev) {
+      if (e.type === 'rule_vote') {
+        const chip = el('div', `chip vote${e.value === 'no' ? ' against' : ''}`);
+        chip.append(el('span', 'label', 'Votes'), el('span', 'cmd', `${e.value} on ${e.id}`));
+        node.append(chip);
+      } else if (e.type === 'escrow' && e.action === 'opened') {
+        const chip = el('div', 'chip trade');
+        chip.append(Object.assign(el('span', 'label'), { innerHTML: `${ICON.lock} Escrow` }), el('span', '', `${e.coins} coin${e.coins === 1 ? '' : 's'} for ${nameOf(e.to, names)}: “${e.terms}”`));
+        node.append(chip);
+      } else if (e.type === 'exile_ballot') {
+        const chip = el('div', 'chip commit');
+        chip.append(Object.assign(el('span', 'label'), { innerHTML: `${ICON.lock} Secret ballot` }), el('span', 'cmd', `exile ${nameOf(e.target, names)}? ${e.value}`));
+        node.append(chip);
       }
     }
     const draft = ev.find((e) => e.type === 'draft');
@@ -278,11 +324,12 @@ export class StageText {
       const lift = Math.min(90, 30 + Math.abs(x2 - x1) * 0.25);
       this.linkPath.setAttribute('d', `M ${x1} ${y1} Q ${(x1 + x2) / 2} ${Math.min(y1, y2) - lift} ${x2} ${y2}`);
       this.linkPath.setAttribute('visibility', 'visible');
-      const colour = botLook(this.link.from).light;
+      // An accusation points at its target in warning red, whoever makes it.
+      const colour = this.link.kind === 'accuse' ? '#ff8a7a' : botLook(this.link.from).light;
       this.linkPath.setAttribute('stroke', colour);
       this.linkPath.style.color = colour;
       this.linkPath.setAttribute('stroke-dasharray', this.link.kind === 'whisper' ? '5 6' : '');
-      this.linkPath.setAttribute('marker-end', this.link.kind === 'order' ? 'url(#arrowhead)' : '');
+      this.linkPath.setAttribute('marker-end', this.link.kind === 'whisper' ? '' : 'url(#arrowhead)');
       this.linkPath.setAttribute('opacity', '0.85');
     } else {
       this.linkPath.setAttribute('visibility', 'hidden');

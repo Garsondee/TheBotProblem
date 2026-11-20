@@ -322,6 +322,8 @@ function updateSwitches(world: World, events: WorldEvent[]): void {
     if (taker) {
       world.coins = world.coins.filter((c) => c !== coinId);
       taker.coins.push(coinId);
+      // Coins in the practice room don't count, so they don't go in the purse.
+      if (level.kind === 'puzzle') taker.purse += 1;
       events.push({ step, type: 'coin', bot: taker.id, coin: coinId });
     }
   }

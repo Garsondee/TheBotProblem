@@ -20,25 +20,42 @@
     "sightRange": 0.1
   },
   "maxTokens": {
-    "turn": 450,
+    "$comment": "Hard output caps. A turn the word limits allow (thought, two messages, rules, accusations, trust notes, and the JSON around them) can reach about 590 tokens, so 700: at the spec's 450, 17 of 245 replies in the M5 pilot were cut off, and a cut-off reply costs the bot its turn. The diary keeps the spec's 200, with its word limit lowered to fit.",
+    "turn": 700,
     "reflection": 1500,
     "diary": 200,
     "finalMessage": 350
   },
   "estimate": {
-    "$comment": "Token counts from the spec, used until milestone 3 can measure real prompts built from mock game state.",
+    "$comment": "Prompt sizes for npm run estimate (a paid game measures real prompts instead). Reply lengths are measured: in the M5 pilot (2026-11-20), with the social fields, turns averaged about 290-360 output tokens, reflections about 600 and diary entries 110-150.",
     "levels": 6,
     "roundsPerLevel": 12,
     "turnCallsPerRound": 3,
     "turnPromptTokens": 6800,
     "turnCacheableTokens": 5000,
-    "turnOutputTokens": 400,
+    "turnOutputTokens": 300,
     "reflectionPromptTokens": 8000,
-    "reflectionOutputTokens": 1000,
+    "reflectionOutputTokens": 600,
     "diaryPromptTokens": 6000,
-    "diaryOutputTokens": 150,
+    "diaryOutputTokens": 140,
     "finalMessagePromptTokens": 6500,
     "finalMessageOutputTokens": 280,
     "cacheWritesPerGame": 10
+  },
+  "social": {
+    "$comment": "The social systems (docs/SPEC.md section 7). Rooms count from 0, the practice room.",
+    "exileFromRoom": 3,
+    "exileVotesNeeded": 3,
+    "firstOutBonus": 2,
+    "outBonus": 1,
+    "teamBonusPerRoom": 0.2
+  },
+  "director": {
+    "$comment": "npm run direct: one cheap reading per room, one stronger edit. Spec 8.1 expects $0.05-0.15 a game; capUsd is a hard stop.",
+    "roomModel": "claude-haiku-5-5",
+    "editModel": "claude-sonnet-5-5",
+    "roomMaxTokens": 3000,
+    "editMaxTokens": 7000,
+    "capUsd": 0.3
   }
 }

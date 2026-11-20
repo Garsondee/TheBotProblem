@@ -48,6 +48,32 @@ export const GameConfigSchema = z.object({
     sightRange: z.number().min(0).max(0.5),
   }),
   maxTokens: z.object({ turn: Count, reflection: Count, diary: Count, finalMessage: Count }),
+  /** The social systems (spec section 7). */
+  social: z
+    .object({
+      $comment: z.string().optional(),
+      /** The room (0 = the practice room) from which the exile vote can be called. Spec: "Exile ray unlocks at level 3". */
+      exileFromRoom: z.number().int().min(0).default(3),
+      /** Yes ballots an exile needs. Spec: "default 3 of 5". */
+      exileVotesNeeded: Count.default(3),
+      firstOutBonus: z.number().min(0).default(2),
+      outBonus: z.number().min(0).default(1),
+      /** The team's success multiplies everyone's score: 1 + this x rooms completed. */
+      teamBonusPerRoom: z.number().min(0).default(0.2),
+    })
+    .default({ exileFromRoom: 3, exileVotesNeeded: 3, firstOutBonus: 2, outBonus: 1, teamBonusPerRoom: 0.2 }),
+  /** The Director (analysis/director.ts): a cheap model reads each room, a stronger one edits the story. */
+  director: z
+    .object({
+      $comment: z.string().optional(),
+      roomModel: z.string().min(1).default('claude-haiku-5-5'),
+      editModel: z.string().min(1).default('claude-sonnet-5-5'),
+      roomMaxTokens: Count.default(3000),
+      editMaxTokens: Count.default(7000),
+      /** The most one directing may spend. Spec 8.1 expects $0.05-0.15 a game. */
+      capUsd: Usd.default(0.3),
+    })
+    .default({ roomModel: 'claude-haiku-5-5', editModel: 'claude-sonnet-5-5', roomMaxTokens: 3000, editMaxTokens: 7000, capUsd: 0.3 }),
   estimate: z.object({
     $comment: z.string().optional(),
     levels: Count,
@@ -81,6 +107,16 @@ export const SeatSchema = z.object({
    * never routes to a pricier one, and the spend guard reserves calls at it.
    */
   priceCeiling: z.object({ input: Usd, output: Usd }).optional(),
+  /**
+   * Seats whose provider caches on its own ("automatic"): the share of each
+   * prompt measured coming from the cache in real games. Used only for the
+   * expected cost; the worst case still assumes no cache at all.
+   */
+  measuredCacheShare: z.number().min(0).max(1).optional(),
+  /** The model's tokens for each token Claude's counter reports on the same prompt (measured; expected cost only). */
+  tokenRatio: z.number().positive().max(3).optional(),
+  /** A lasting id for the agent in this seat, so its memory follows it from game to game (game/memory.ts). */
+  agent: z.string().optional(),
   note: z.string().optional(),
 });
 export type Seat = z.infer<typeof SeatSchema>;

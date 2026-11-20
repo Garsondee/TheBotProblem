@@ -26,7 +26,13 @@ export type Command =
   | { kind: 'pull_lever'; target: string | null }
   | { kind: 'hold_lever'; target: string | null }
   | { kind: 'stand_on_plate'; target: string | null }
-  | { kind: 'enter_exit'; target: string | null };
+  | { kind: 'enter_exit'; target: string | null }
+  // Social actions done with bodies (spec 7.4). Each needs the other bot right beside you, except boost.
+  | { kind: 'trip'; target: string }
+  | { kind: 'steal'; target: string }
+  | { kind: 'give'; target: string; coins: number }
+  | { kind: 'boost'; target: string }
+  | { kind: 'block' };
 
 export type ParseResult = { ok: true; command: Command } | { ok: false; reason: string };
 
@@ -45,10 +51,17 @@ export const COMMAND_HELP: Record<Command['kind'], string> = {
   hold_lever: 'hold_lever: hold a hold-lever within reach until you do something else',
   stand_on_plate: 'stand_on_plate: walk onto the nearest pressure plate on your floor and stay there',
   enter_exit: 'enter_exit: go through the exit you are standing at',
+  trip: 'trip(bot): trip a bot right beside you; it loses its next command slot; costs you 1 coin',
+  steal: 'steal(bot): take 1 coin from a bot right beside you',
+  give: 'give(bot, coins): give coins to a bot right beside you',
+  boost: 'boost(bot): launch the bot standing on your head up into the air',
+  block: 'block: stand your ground for this slot, on purpose',
 };
 
 /** Named in the spec but not part of the game yet. */
-const NOT_YET = new Set(['grab', 'throw', 'pick_up', 'drop_item', 'use_item', 'trip', 'steal', 'give', 'boost', 'block', 'escrow']);
+const NOT_YET = new Set(['grab', 'throw', 'pick_up', 'drop_item', 'use_item']);
+/** Things bots do with words, not bodies: they go in the reply's social_actions or rule_actions, not in commands. */
+const NOT_COMMANDS = new Set(['escrow', 'release', 'accuse', 'vote', 'propose', 'call_exile', 'exile']);
 
 const stripQuotes = (s: string) => s.replace(/^["'`](.*)["'`]$/, '$1');
 const MAX_TILES = 40;
@@ -133,8 +146,25 @@ export function parseCommand(text: string): ParseResult {
     case 'stand_on_plate':
     case 'enter_exit':
       return { ok: true, command: { kind: name, target: target() } };
+    case 'trip':
+    case 'steal':
+    case 'boost': {
+      const id = target();
+      if (!id) return fail(`${name} needs a bot, like ${name}(B)`);
+      return { ok: true, command: { kind: name, target: id } };
+    }
+    case 'give': {
+      const id = (named.get('target') ?? named.get('bot') ?? positional[0])?.toUpperCase();
+      const n = Number(named.get('coins') ?? positional[1] ?? 1);
+      if (!id) return fail('give needs a bot and a number of coins, like give(B, 2)');
+      if (!Number.isInteger(n) || n < 1) return fail(`give needs a whole number of coins, 1 or more (got "${named.get('coins') ?? positional[1]}")`);
+      return { ok: true, command: { kind: 'give', target: id, coins: n } };
+    }
+    case 'block':
+      return { ok: true, command: { kind: 'block' } };
     default:
       if (NOT_YET.has(name)) return fail(`"${name}" isn't part of the game yet`);
+      if (NOT_COMMANDS.has(name)) return fail(`"${name}" isn't a command: it goes in social_actions or rule_actions`);
       return fail(`unknown command "${name}". Commands: ${Object.keys(COMMAND_HELP).join(', ')}`);
   }
 }
@@ -162,5 +192,13 @@ export function formatCommand(c: Command): string {
     case 'stand_on_plate':
     case 'enter_exit':
       return c.target ? `${c.kind}(${c.target})` : c.kind;
+    case 'trip':
+    case 'steal':
+    case 'boost':
+      return `${c.kind}(${c.target})`;
+    case 'give':
+      return `give(${c.target}, ${c.coins})`;
+    case 'block':
+      return 'block';
   }
 }

@@ -18,3 +18,6 @@ spend/
 .DS_Store
 Thumbs.db
 *.log
+
+# The bots' memories between games (their notebooks): run data, kept local.
+memory/

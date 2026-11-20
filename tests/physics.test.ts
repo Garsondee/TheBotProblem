@@ -253,6 +253,15 @@ describe('switches', () => {
     expect(world.exitOrder).toEqual(['B']);
     expect(results.at(-1)?.reason).toMatch(/exit X is full/);
   });
+
+  it('says where a nearby exit is when a bot misses it, and only a nearby one', () => {
+    // A stands a tile past the exit (its box 7.125-7.875, the exit 5-6): the room's fact, plainly.
+    const level = makeLevel(['############', '#..........#', '#..........#', '#....x.A...#', '############'], { x: { type: 'exit', id: 'X', slots: 2 } });
+    expect(play(startWorld(level), { A: ['enter_exit'] }).results[0]?.reason).toBe("you're not at an exit: exit X is at x=5.00 to 6.00, 1.13 tiles to your left");
+    // Far from it, nothing is given away: finding exits is the bots' job.
+    const far = makeLevel(['##############', '#............#', '#............#', '#.A.......x..#', '##############'], { x: { type: 'exit', id: 'X', slots: 2 } });
+    expect(play(startWorld(far), { A: ['enter_exit'] }).results[0]?.reason).toBe("you're not at an exit");
+  });
 });
 
 describe('commands that make no sense', () => {

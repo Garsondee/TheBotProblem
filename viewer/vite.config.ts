@@ -5,8 +5,10 @@
  * the recorded games. This plugin serves them, read-only:
  *   GET /api/runs                 the runs that have a replay, newest first
  *   GET /api/runs/<id>/replay.jsonl
- * Nothing else under runs/ is served (responses.jsonl and prompts.jsonl stay
- * on disk), and run ids are checked so a request can't climb out of runs/.
+ *   GET /api/runs/<id>/story.json   the Director's story of it, if it has one
+ * Nothing else under runs/ is served (responses.jsonl, prompts.jsonl and the
+ * Director's working files stay on disk), and run ids are checked so a
+ * request can't climb out of runs/.
  */
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,6 +19,19 @@ import { defineConfig } from 'vite';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RUNS = join(ROOT, 'runs');
 const SAFE_ID = /^[\w.-]+$/;
+const SERVED = new Set(['replay.jsonl', 'story.json']);
+
+/** The story's title, for the list of games. */
+function storyInfo(id: string): { title: string; logline: string; director: string } | null {
+  const path = join(RUNS, id, 'story.json');
+  if (!existsSync(path)) return null;
+  try {
+    const story = JSON.parse(readFileSync(path, 'utf8')) as { title?: string; logline?: string; director?: string };
+    return { title: story.title ?? '', logline: story.logline ?? '', director: story.director ?? '' };
+  } catch {
+    return null;
+  }
+}
 
 /** The first two lines of a file, without reading the whole thing (replays can be megabytes). */
 function firstLines(path: string): string[] {
@@ -43,9 +58,10 @@ function describeRun(id: string): Record<string, unknown> {
       bytes: statSync(path).size,
       // Replays from before the viewer existed don't carry their rooms' definitions, so they can't be drawn.
       playable: second.includes('"file":'),
+      story: storyInfo(id),
     };
   } catch {
-    return { id, seed: null, models: [], levels: [], bytes: 0, playable: false };
+    return { id, seed: null, models: [], levels: [], bytes: 0, playable: false, story: null };
   }
 }
 
@@ -64,12 +80,12 @@ function runsApi(): Plugin {
           return;
         }
         const [id, file] = parts;
-        if (parts.length !== 2 || !id || !SAFE_ID.test(id) || file !== 'replay.jsonl' || !existsSync(join(RUNS, id, file))) {
+        if (parts.length !== 2 || !id || !SAFE_ID.test(id) || !file || !SERVED.has(file) || !existsSync(join(RUNS, id, file))) {
           res.statusCode = 404;
           res.end('not found');
           return;
         }
-        res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
+        res.setHeader('content-type', file === 'story.json' ? 'application/json; charset=utf-8' : 'application/x-ndjson; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         res.end(readFileSync(join(RUNS, id, file)));
       });

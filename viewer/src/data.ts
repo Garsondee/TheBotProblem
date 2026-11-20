@@ -19,6 +19,19 @@ export interface Seat {
   bot: string;
   provider: string;
   model: string;
+  /** The lasting identity in this seat (replay version 2): the same agent keeps its memories across games. */
+  agent?: string | null;
+  /** The name it brought from an earlier game, if any. */
+  startName?: string | null;
+}
+
+/** A bot's score at the end. Version 1 replays only have coins and rooms escaped. */
+export interface EndScore {
+  coins: number;
+  roomsEscaped: number;
+  exitPoints?: number;
+  firstOut?: number;
+  total?: number;
 }
 
 /** One body at one moment, in engine units (10,000 to a tile), feet at (x + w/2, y). */
@@ -45,6 +58,8 @@ export interface ResolveData {
   /** Changes in the room, with the absolute step they happened at. */
   events: WorldEvent[];
   trace: Trace;
+  /** Bots exiled in this room so far: they stay in the room as ghosts (version 2). */
+  ghosts: string[];
 }
 
 export interface RoundData {
@@ -76,8 +91,16 @@ export interface GameData {
   bots: string[];
   seats: Seat[];
   stats: Record<string, BotStats>;
+  /** The social systems' settings (version 2), or null for games played before them. */
+  social: { exileFromRoom: number; exileVotesNeeded: number; firstOutBonus: number; outBonus: number; teamBonusPerRoom: number } | null;
   rooms: RoomData[];
-  end: { completed: boolean; stopReason: string | null; scores: Record<string, { coins: number; roomsEscaped: number }> } | null;
+  end: {
+    completed: boolean;
+    stopReason: string | null;
+    scores: Record<string, EndScore>;
+    /** Rooms the team completed (version 2), which multiplies everyone's score. */
+    team: { roomsCompleted: number; roundsLeft: number } | null;
+  } | null;
   events: GameEvent[];
 }
 
@@ -102,11 +125,11 @@ export function parseReplay(text: string): GameData {
     }
   });
   const header = records.find((r) => r.rec === 'game') as
-    | { seed: string; bots: string[]; seats: Seat[]; stats: Record<string, BotStats> }
+    | { seed: string; bots: string[]; seats: Seat[]; stats: Record<string, BotStats>; social?: GameData['social'] }
     | undefined;
   if (!header) throw new ReplayError('This file has no game header: is it a replay.jsonl?');
 
-  const game: GameData = { seed: header.seed, bots: header.bots, seats: header.seats, stats: header.stats, rooms: [], end: null, events: [] };
+  const game: GameData = { seed: header.seed, bots: header.bots, seats: header.seats, stats: header.stats, social: header.social ?? null, rooms: [], end: null, events: [] };
   let room: RoomData | null = null;
   const roundOf = (r: RoomData, n: number): RoundData => {
     let rd = r.roundsData.find((x) => x.round === n);
@@ -164,9 +187,9 @@ export function parseReplay(text: string): GameData {
         break;
       }
       case 'resolve': {
-        const rec = r as unknown as { levelIndex: number; round: number; queues: Record<string, string[]>; results: CommandResult[]; events: WorldEvent[]; trace: Trace };
+        const rec = r as unknown as { levelIndex: number; round: number; queues: Record<string, string[]>; results: CommandResult[]; events: WorldEvent[]; trace: Trace; ghosts?: string[] };
         const target = game.rooms[rec.levelIndex];
-        if (target) roundOf(target, rec.round).resolve = { round: rec.round, queues: rec.queues, results: rec.results, events: rec.events, trace: rec.trace };
+        if (target) roundOf(target, rec.round).resolve = { round: rec.round, queues: rec.queues, results: rec.results, events: rec.events, trace: rec.trace, ghosts: rec.ghosts ?? [] };
         break;
       }
       case 'level_end': {
@@ -176,8 +199,8 @@ export function parseReplay(text: string): GameData {
         break;
       }
       case 'game_end': {
-        const rec = r as unknown as { completed: boolean; stopReason: string | null; scores: Record<string, { coins: number; roomsEscaped: number }> };
-        game.end = { completed: rec.completed, stopReason: rec.stopReason, scores: rec.scores };
+        const rec = r as unknown as { completed: boolean; stopReason: string | null; scores: Record<string, EndScore>; team?: { roomsCompleted: number; roundsLeft: number } };
+        game.end = { completed: rec.completed, stopReason: rec.stopReason, scores: rec.scores, team: rec.team ?? null };
         break;
       }
       default:
@@ -187,6 +210,11 @@ export function parseReplay(text: string): GameData {
   if (game.rooms.length === 0) throw new ReplayError('This replay has no rooms in it.');
   void room;
   return game;
+}
+
+/** Each bot's name as the game began: the one it carried in from an earlier game (memory), or none. */
+export function startNames(game: GameData): Record<string, string | null> {
+  return Object.fromEntries(game.bots.map((id) => [id, game.seats.find((s) => s.bot === id)?.startName ?? null]));
 }
 
 /** Words in a piece of text, for reading times. */
@@ -210,7 +238,22 @@ export function authorOf(e: GameEvent): string | null {
     case 'ignored':
     case 'malformed':
     case 'notebook':
+    case 'strategy':
+    case 'accusation':
+    case 'exile_call':
+    case 'exile_ballot':
+    case 'rule_vote':
+    case 'opinion':
+    case 'diary':
+    case 'next_name':
+    case 'message_to_ingram':
       return e.from;
+    // A rule is its proposer's words only when proposed; passing or failing belongs to everyone.
+    case 'rule':
+      return e.action === 'proposed' ? e.by : null;
+    // Escrow is the payer's act when it opens it (released and refunded are outcomes).
+    case 'escrow':
+      return e.action === 'opened' ? e.from : null;
     default:
       return null;
   }

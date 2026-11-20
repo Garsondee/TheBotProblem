@@ -10,11 +10,32 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 | 1 | Physics engine, level format, line of sight, solution-script validator, 3 levels | **Built and tested**, on GitHub. Ingram: "I believe it's tested and up and running". | No | `npm run levels` |
 | 2 | Interface format test | **Built and tested**, paid run done ($0.058). Winner: numbers plus affordances. Not yet seen by Ingram. | ~$0.10 | [FORMAT-TEST.md](FORMAT-TEST.md) |
 | 3 | Turn loop, event log, view-builder, response schema, full mock game, leak test | **Built and tested**: the full mock game and the leak test pass; two tiny real games played ($0.023). Ready for the first real run. Not yet seen by Ingram. | No (smoke tests $0.023) | `npm run game -- --mock`, `npm run game -- --scripted`, `npm run game -- --levels P0,L1 --dry-run` |
-| 4 | Viewer: rendering, bubbles, full mode, timeline, spectator overlay | **Built and tested**: mock and scripted games play back smoothly in the browser, checked by eye and by tests. The first real game is recorded and waiting, unwatched. Not yet seen by Ingram. | No | `npm run view` |
-| 5 | Text-only social pilot with real models | Not started | ~$0.30 | |
+| 4 | Viewer: rendering, bubbles, full mode, timeline, spectator overlay | **Seen by Ingram** (finished): she watched the first real game. "The visuals are fantastic, 10/10." | No | `npm run view` |
+| 5 | Text-only social pilot with real models | **Built and tested**: acceptance passed on the second paid game (cache hits confirmed; cost +6% of the estimate for the calls made). Also built: the Director and Story mode, memory between games, the diary room. Three games directed. Not yet seen by Ingram. | ~$0.30 (spent $0.39 on two games, $0.37 directing) | `npm run view`: "Hold One More Slot" and "The Last Door" (the pilots), "Hold the Door" (the first game) |
 | 6 | Roles, deception, rumours, hidden stats, pressures, tension controller, measurement | Not started | ~$1.50 | |
 | 7 | Highlights, Kokoro voices, highlights mode, diary scenes, final messages | Not started | ~$0.10 | |
 | 8 | Folklore, forks, persona evolution | Not started | ~$0.70 a game | |
+
+## Milestone 5: what exists
+
+- **The Director** (`npm run direct -- <run>`, [analysis/](../analysis)): tells a recorded game as a story of 3 to 7 minutes. Haiku reads each room (everything said, whispered, thought, planned and moved, plus the diary room and notebooks), Sonnet edits. The story has chapter cards, a narrator, the key conversations shown for just the bots they're about, the bots' private words quoted from the recording, and fast-forwards between. About $0.05 a game; directing it again is free. `--free` makes a plain story with no model.
+- **Story mode** in the viewer: the default for a game with a story, with "Full game" one click away. Chapter cards, the narrator's lower third, quote cards in each bot's colour, a fast-forward sign, a caption on each moment shown, and a story timeline with chapters and quote marks.
+- **The social systems** (spec 7.1–7.5) in the game and the viewer:
+  - coins kept from room to room; trip, steal, give, boost
+  - a constitution with votes and thresholds
+  - accusations and exile votes (exiled bots stay as faint ghosts that can still talk)
+  - escrow trades
+  - orders judged obeyed or ignored
+  - secret changes of plan recorded
+  - opinions and a strategy paragraph
+  - scores with a team multiplier
+
+  New bubbles for accusations, rules, votes, trades and ballots; announcement cards when a rule passes or an exile vote is counted.
+- **The diary room** at each room's end (for Ingram and the Director only), and at the game's end each bot's **message to Ingram** and a **name chosen in secret** for its next game.
+- **Memory between games:** each agent keeps its name, notebook and strategy in a bank, and enters the next game with them, under its new name if it chose one. Letters are dealt afresh each game.
+- **summary.md** now lists the scores, what the social systems saw, the diary room, the messages to Ingram and the secret names.
+- **The estimate** is calibrated on the first real game, and every paid game now checks it afterwards against the bill.
+- **Tested** (free): the social systems, society rules, memory banks, the Director (free and with a fake model), story timing, bridging and fitting, verbatim excerpts, the recorded and capped Director calls, the summary. 233 tests in all; the leak test now searches every field of every event.
 
 ## Milestone 4: what exists
 
@@ -38,7 +59,7 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 - **`npm run game`**: free mock or scripted games; paid games print an estimate from real prompts and wait for a yes. Every run folder holds summary.md, replay.jsonl, responses.jsonl, prompts.jsonl, state/ and, for paid games, ledger.json.
 - **Tested**: the full mock game (practice room plus six puzzles); the leak test (every event behind every prompt was visible to that bot, and every marked text in a prompt traces back to an event that bot may see); determinism (same seed, same replay, byte for byte); a replay from recorded responses alone; a game stopped cleanly by its cap.
 - **Seen with real models**: two small practice-room games (1 and 2 rounds). The bots split up the testing between them, whispered, chained moves, and measured their own jump heights from the results to within 0.01 of their true hidden values.
-- **Spent so far, lifetime** (from the spend record): $0.074 of Claude credit and $0.094 of OpenRouter credit, the first real game included.
+- **Spent so far, lifetime** (from the spend record, 2026-11-20 after milestone 5): $0.64 of Claude credit and $0.29 of OpenRouter credit, every game and story included.
 
 ## Milestone 2: what exists
 
@@ -66,7 +87,8 @@ Stages: **not started** → **building** → **built and tested** (the acceptanc
 ## Known gaps, to close in later milestones
 
 - Level elements not built yet: keys and items, springs, moving platforms, seesaws, cracking bridges, conveyors, power-ups. They arrive with milestone 6 (pressures and hidden mechanics) or when a level needs them. The spec suggests about 8 levels; there are 6 and the practice room.
-- Not in the turn loop yet (spec section 7, milestones 5 and 6): rules and votes, predictions, opinions, roles, rumours, pressures, the diary room and the final message to Ingram. Orders are delivered but obedience isn't measured yet.
+- Not in the turn loop yet (spec section 7, milestone 6): predictions, roles, rumours, pressures, the tension controller. Grab, throw and items (spec 7.4) wait for the item elements.
+- Voices (milestone 7): the Director already lists the lines worth voicing (story.json `voiceLines`).
 - The view doesn't say "you landed 0.38 tiles further than predicted". It gives the exact result next to the move menu's prediction, and the bots do the comparison themselves (in the smoke tests, they did).
 - DeepSeek's prompts aren't cached (0% in the smoke tests): OpenRouter spreads its calls over providers. Milestone 5 can try OpenRouter's `session_id` for sticky routing.
 - The solo search treats positions within a quarter tile as the same place, and tries a fixed set of commands. A solo route needing finer positioning could be missed. That's fine for these levels, whose cooperation rests on hard limits (a 3-tile ledge, a 1.40 crate, a door far from its plate, a plate that needs two bots).

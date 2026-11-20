@@ -14,7 +14,14 @@ Read first: [docs/SPEC.md](docs/SPEC.md) (Ingram's brief), [docs/STATE.md](docs/
 
 ## Commands
 
-`npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run view` (the browser viewer; `?zoom=3&focus=5,3` enlarges a spot, `window.botViewer` jumps to beats), `npm run game -- --mock` / `--scripted` (free games), `npm run game -- --dry-run` (a paid game's estimate, from real prompts), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`.
+`npm run check` (type-check and tests), `npm run levels` (every level: picture, solution, validity), `npm run view` (the browser viewer; `?mode=full` skips the story, `?zoom=3&focus=5,3` enlarges a spot, `window.botViewer` jumps to beats and story items), `npm run game -- --mock` / `--scripted` (free games), `npm run game -- --dry-run` (a paid game's estimate, from real prompts), `npm run direct -- <run> --dry-run` / `--free` (the Director's estimate / the free Director), `npm run estimate`, `npm run fake-run -- --run-cap 0.10`, `npm run prices`, `npm run check-env`.
+
+## The Director and memory
+
+- The Director's story (runs/<id>/story.json) points at moments, not times; viewer/src/story.ts times it, for the viewer and the Director alike. Quotes are event ids: the words always come from the recording, and an excerpt must be in the line word for word.
+- `npm run direct` records every reply in runs/<id>/director/calls.jsonl and answers a repeated request from it for free. It is a paid run like a game: estimate first, a yes, its own cap (config/game.json "director").
+- Memory banks (memory/*.json) update only when a game completes. A damaged bank stops the game rather than starting the bots afresh.
+- The browser pane may report the page as hidden, which throttles animation frames to ~2 a second: check playback with `window.botViewer.seek(t)` and screenshots, not real-time play.
 
 ## Code layout rules
 

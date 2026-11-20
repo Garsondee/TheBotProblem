@@ -12,6 +12,8 @@ export interface RunInfo {
   levels: string[];
   bytes: number;
   playable: boolean;
+  /** The Director's story, if made (only that it exists is shown: its title and logline would spoil the game). */
+  story: { title: string; logline: string; director: string } | null;
 }
 
 function whenOf(id: string): string {
@@ -46,6 +48,7 @@ export function showPicker(root: HTMLElement, runs: readonly RunInfo[], onPick: 
     const models = kind === 'game' ? run.models.join(', ') : '';
     const note = run.playable ? '' : 'recorded before the viewer existed: it can’t be drawn';
     b.append(el('span', 'when', whenOf(run.id)), k, el('span', 'detail', [rooms, models, note].filter(Boolean).join(' · ')));
+    if (run.story && run.playable) b.append(el('span', 'story', run.story.director === 'free' ? 'Story (free Director)' : 'Story'));
     if (run.playable) b.addEventListener('click', () => onPick(run.id));
     else b.disabled = true;
     list.append(b);

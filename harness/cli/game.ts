@@ -10,6 +10,10 @@
  *   --seed some-text    the seed (default: made from the clock, and recorded)
  *   --cast file.json    another cast file
  *   --run-cap 0.50      this run's spending cap in US dollars (default: config/game.json)
+ *   --exile-from 1      the room (0 = the first) from which exile votes can be called,
+ *                       for this game only (default: config/game.json, "social")
+ *   --check-run runs/x  no game: the estimate check for a game already played (give it
+ *                       that game's seed, rooms and memory options); free
  *
  * Money (spec section 0, "Money rules"): a paid game first prints its
  * estimate, worked out from real prompts (a free mock game of the same rooms
@@ -18,7 +22,7 @@
  * reserved against the run, per-bot and lifetime caps before it starts, and
  * the game saves and stops at the first phase it can't afford.
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
@@ -28,9 +32,10 @@ import { MockAgent } from '../../agents/mockAgent';
 import { ClaudeClient, OpenRouterClient } from '../../agents/models';
 import { ScriptedAgent } from '../../agents/scriptedAgent';
 import type { CallShape, SeatPlan } from '../../budget/estimate';
-import { estimateCast } from '../../budget/estimate';
+import { estimateCast, estimateSeat } from '../../budget/estimate';
 import { liveLine, usd, usd4 } from '../../budget/format';
 import { GlobalSpend, readLifetimeSpend } from '../../budget/globalSpend';
+import type { LedgerEntry } from '../../budget/ledger';
 import { Ledger } from '../../budget/ledger';
 import { fetchOpenRouterPrices } from '../../budget/openrouterPrices';
 import type { PriceTable } from '../../budget/prices';
@@ -38,8 +43,12 @@ import { priceOf } from '../../budget/prices';
 import { SpendGuard } from '../../budget/spendGuard';
 import { cacheHitShare } from '../../budget/usage';
 import type { Level } from '../../engine/level';
+import { RunRandom } from '../../engine/random';
 import type { GameResult, Money } from '../../game/game';
 import { runGame } from '../../game/game';
+import type { MemoryBank } from '../../game/memory';
+import { agentIdsFor, dealLetters, emptyBank, identitiesFor, updateBank } from '../../game/memory';
+import { bankFromReplay, loadBank, saveBank } from '../memoryFiles';
 import { MemoryOutput } from '../../game/output';
 import { summaryMarkdown } from '../../game/summary';
 import type { Seat } from '../config';
@@ -62,6 +71,11 @@ const { values } = parseArgs({
     seed: { type: 'string' },
     cast: { type: 'string' },
     'run-cap': { type: 'string' },
+    memory: { type: 'string' },
+    fresh: { type: 'boolean', default: false },
+    'continue-from': { type: 'string' },
+    'exile-from': { type: 'string' },
+    'check-run': { type: 'string' },
   },
 });
 
@@ -80,11 +94,34 @@ const free = values.mock || values.scripted;
 const label = values.mock ? 'mock' : values.scripted ? 'scripted' : 'game';
 const runIdGuess = makeRunId(label);
 const seed = values.seed ?? runIdGuess;
-const botIds = cast.seats.map((s) => s.botId).sort();
-const maxTokens = { turn: game.maxTokens.turn, reflection: game.maxTokens.reflection };
+const maxTokens = { turn: game.maxTokens.turn, reflection: game.maxTokens.reflection, diary: game.maxTokens.diary };
+
+// ---------------------------------------------------------------- who sits where, and what they remember
+// Paid games keep each agent's memory (name, notebook, strategy) in a bank, unless --fresh; free games only with --memory.
+const useMemory = !values.fresh && (values.memory !== undefined || !free);
+const bankName = values.memory ?? 'default';
+let bank: MemoryBank = useMemory ? loadBank(bankName) : emptyBank();
+if (useMemory && values['continue-from'] && Object.keys(bank.agents).length === 0) {
+  const from = values['continue-from'].replace(/^runs[\\/]/, '');
+  bank = bankFromReplay(readFileSync(join(PATHS.runs, from, 'replay.jsonl'), 'utf8'), seed);
+  say(`Memory bank "${bankName}" starts from the bots of ${from}.`);
+}
+// With memory, letters are dealt afresh (seeded), so a private rename stays private.
+const dealt = dealLetters(agentIdsFor(cast.seats), useMemory ? new RunRandom(seed).stream('roles') : null);
+const identities = useMemory ? identitiesFor(bank, dealt) : undefined;
+const seatOf = (letter: string): Seat => ({ ...(cast.seats[dealt.find((d) => d.letter === letter)?.seat ?? 0] as Seat), botId: letter });
+const botIds = dealt.map((d) => d.letter);
 
 say(`TheBotProblem: ${free ? `a free ${label} game` : 'a paid game'}, seed "${seed}"`);
 say(`Rooms: ${levels.map((l) => `${l.id} (${roundsOf(l)} rounds)`).join(', ')}`);
+if (useMemory) {
+  const known = dealt.filter((d) => bank.agents[d.agent]);
+  say(`Memory bank "${bankName}": ${known.length === 0 ? 'every agent starts fresh' : `${known.length} agent${known.length === 1 ? '' : 's'} remember earlier games`}; letters dealt afresh.`);
+}
+
+// A short game (a pilot) can unlock exile earlier; the rulebook tells the bots from which room.
+const social = values['exile-from'] !== undefined ? { ...game.social, exileFromRoom: Math.max(0, Math.floor(Number(values['exile-from']))) } : game.social;
+if (values['exile-from'] !== undefined) say(`Exile votes from room ${social.exileFromRoom + 1} of ${levels.length} (this game only).`);
 
 const baseOptions = {
   seed,
@@ -92,8 +129,37 @@ const baseOptions = {
   ranges: game.hiddenStats,
   maxTokens,
   promptTokenLimit: game.budget.promptTokenHardLimit,
+  social,
+  ...(identities ? { identities } : {}),
   ...(maxRounds ? { maxRounds } : {}),
 };
+
+/** After a finished game, the bank remembers it: notebooks, strategies, and names (private new ones included). */
+async function remember(result: GameResult): Promise<void> {
+  if (!useMemory) return;
+  if (!result.completed) {
+    say(`Memory bank "${bankName}" not updated: the game didn't finish, so the bots never wrote their last notebooks.`);
+    return;
+  }
+  bank = updateBank(bank, dealt, cast.seats.map((s) => s.model), {
+    seed,
+    names: result.names,
+    nextNames: result.nextNames,
+    notebooks: result.notebooks,
+    strategies: result.strategies,
+  });
+  await saveBank(bankName, bank);
+  say(`Memory bank "${bankName}" updated: ${Object.keys(result.nextNames).length} bot${Object.keys(result.nextNames).length === 1 ? '' : 's'} chose a new name for next time.`);
+}
+
+/**
+ * Set by a paid game once its estimate is made: after the game, the calls
+ * actually made, priced by the same model the estimate used. A room that ends
+ * early cuts calls, so the estimate made beforehand (every round played) can't
+ * be compared with the bill directly; this check can (milestone 5: "cost
+ * within 20% of estimate").
+ */
+let estimateCheck: ((entries: readonly LedgerEntry[]) => { expectedUsd: number; chargedUsd: number; lines: string[] }) | null = null;
 
 /** Play the game and save everything to a new run folder. */
 async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: number | null): Promise<GameResult> {
@@ -115,6 +181,7 @@ async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: numb
     });
     return result;
   } finally {
+    const check = money && estimateCheck ? estimateCheck(money.ledger.all()) : null;
     if (money) {
       await writeJsonAtomic(join(runDir, 'ledger.json'), {
         runId,
@@ -123,6 +190,7 @@ async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: numb
         completed: result?.completed ?? false,
         stopReason: result?.stopReason ?? 'the game ended with an error',
         totals: money.ledger.totals(),
+        estimateCheck: check,
         warnings: money.ledger.warnings(),
         entries: money.ledger.all(),
       });
@@ -130,10 +198,19 @@ async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: numb
     }
     if (result) {
       const totals = money?.ledger.totals();
-      const costLine = totals ? `Spent ${usd4(totals.usd)} (run cap ${usd(runCapUsd ?? 0)}).` : 'Free: no paid calls.';
+      const off = check && check.expectedUsd > 0 ? (check.chargedUsd - check.expectedUsd) / check.expectedUsd : null;
+      const costLine = totals
+        ? `Spent ${usd4(totals.usd)} (run cap ${usd(runCapUsd ?? 0)}).${off !== null ? ` For the calls actually made the estimate said ${usd4(check?.expectedUsd ?? 0)}: ${off >= 0 ? '+' : ''}${Math.round(off * 100)}%.` : ''}`
+        : 'Free: no paid calls.';
       writeFileSync(
         join(runDir, 'summary.md'),
-        summaryMarkdown(result, { runId, seed, seats: agents.map((a) => ({ bot: a.id, provider: a.provider, model: a.model })).sort((a, b) => a.bot.localeCompare(b.bot)), costLine }),
+        summaryMarkdown(result, {
+          runId,
+          seed,
+          seats: agents.map((a) => ({ bot: a.id, provider: a.provider, model: a.model })).sort((a, b) => a.bot.localeCompare(b.bot)),
+          costLine,
+          teamBonusPerRoom: game.social.teamBonusPerRoom,
+        }),
       );
       say('');
       say(`${result.completed ? 'Game over.' : `Stopped: ${result.stopReason}`} ${costLine}`);
@@ -143,6 +220,7 @@ async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: numb
           say(`  ${model}: ${usd4(bucket.usd)} over ${bucket.calls} calls; ${Math.round((cacheHitShare(bucket.usage) ?? 0) * 100)}% of prompt tokens from the cache; ${bucket.usage.reasoningTokens} hidden reasoning tokens`);
         }
         for (const w of money?.ledger.warnings() ?? []) warn(`  Warning: ${w}`);
+        for (const l of check?.lines ?? []) say(l);
       }
       say(`  Saved: ${relative(PROJECT_ROOT, runDir)} (summary.md, replay.jsonl, responses.jsonl, prompts.jsonl, state/${money ? ', ledger.json' : ''})`);
     }
@@ -152,7 +230,7 @@ async function playAndSave(agents: Agent[], money: Money | null, runCapUsd: numb
 // ---------------------------------------------------------------- free games
 if (free) {
   const agents: Agent[] = botIds.map((id) => (values.scripted ? new ScriptedAgent(id, levels) : new MockAgent(id, seed)));
-  await playAndSave(agents, null, null);
+  await remember(await playAndSave(agents, null, null));
   process.exit(0);
 }
 
@@ -191,18 +269,22 @@ const probe = new MemoryOutput();
 await runGame({ ...baseOptions, agents: botIds.map((id) => new MockAgent(id, seed)), output: probe, money: null });
 const blocks = new Map(probe.prompts.filter((p) => p.rec === 'block').map((p) => [p.hash as string, (p.text as string).length]));
 const sent = probe.prompts.filter((p) => p.rec === 'prompt' && p.attempt === 1);
-const turnPrompts = sent.filter((p) => p.phase !== 'reflect');
+const turnPrompts = sent.filter((p) => p.phase !== 'reflect' && p.phase !== 'diary');
 const reflectPrompts = sent.filter((p) => p.phase === 'reflect');
+const diaryPrompts = sent.filter((p) => p.phase === 'diary');
 const meanChars = (list: Record<string, unknown>[], part: 'user' | 'system') =>
   list.reduce((n, p) => n + (part === 'user' ? (p.user as string).length : (p.system as string[]).reduce((m, h) => m + (blocks.get(h) ?? 0), 0)), 0) / Math.max(1, list.length);
-// Real bots say more than mock ones (up to 2 messages of 60 words, each step): leave room for it.
-const TALK_ALLOWANCE_CHARS = 4_000;
-const NOTEBOOK_ALLOWANCE_CHARS = 2_000; // notebooks grow to at most 600 words after the first room
+// Real bots say more than mock ones, and their notebooks grow: leave room for both. Calibrated on
+// the M5 pilot (2026-11-20), where real Haiku prompts averaged about 1,500 tokens more than the mock
+// game measured (4,000 + 2,000 characters had overestimated them by about 14%).
+const TALK_ALLOWANCE_CHARS = 2_000;
+const NOTEBOOK_ALLOWANCE_CHARS = 1_500;
 const prefixChars = meanChars(turnPrompts, 'system') + NOTEBOOK_ALLOWANCE_CHARS;
 // The start of each view (what the bot sees, its moves, last round) is cached too: written by the round's first call, read by the other two.
 const stableViewChars = turnPrompts.reduce((n, p) => n + ((p.userCacheBreak as number | null) ?? 0), 0) / Math.max(1, turnPrompts.length);
 const turnChars = prefixChars + meanChars(turnPrompts, 'user') + TALK_ALLOWANCE_CHARS;
 const reflectChars = prefixChars + meanChars(reflectPrompts, 'user') + TALK_ALLOWANCE_CHARS;
+const diaryChars = prefixChars + meanChars(diaryPrompts, 'user') + TALK_ALLOWANCE_CHARS;
 
 // Characters per token, measured on one real prompt with Anthropic's free token counter when we can.
 let charsPerToken = 3.0;
@@ -221,6 +303,7 @@ const shapes: CallShape[] = [
     // A round's first call (declare) reads the rulebook and notebook from the cache and writes the round's view:
     // a cache write costs a quarter more than plain input, so that quarter is added.
     kind: 'turn',
+    phases: ['declare'],
     callsPerGame: totalRounds,
     promptTokens: tokensOf(turnChars) + Math.ceil(tokensOf(stableViewChars) / 4),
     cacheableTokens: tokensOf(prefixChars),
@@ -230,6 +313,7 @@ const shapes: CallShape[] = [
   {
     // Its other two calls (talk, commit) read the view from the cache as well.
     kind: 'turn',
+    phases: ['talk', 'commit'],
     callsPerGame: totalRounds * 2,
     promptTokens: tokensOf(turnChars),
     cacheableTokens: tokensOf(prefixChars + stableViewChars),
@@ -238,21 +322,71 @@ const shapes: CallShape[] = [
   },
   {
     kind: 'reflection',
+    phases: ['reflect'],
     callsPerGame: levels.length,
     promptTokens: tokensOf(reflectChars),
     cacheableTokens: tokensOf(prefixChars),
+    freshCache: true,
     expectedOutputTokens: game.estimate.reflectionOutputTokens,
     maxOutputTokens: maxTokens.reflection,
   },
+  {
+    // The diary room (spec 7.10): one short private entry at each room's end.
+    kind: 'diary',
+    phases: ['diary'],
+    callsPerGame: levels.length,
+    promptTokens: tokensOf(diaryChars),
+    cacheableTokens: tokensOf(prefixChars),
+    freshCache: true,
+    expectedOutputTokens: game.estimate.diaryOutputTokens,
+    maxOutputTokens: maxTokens.diary,
+  },
 ];
-const plans: SeatPlan[] = cast.seats.map((s: Seat) => ({ botId: s.botId, model: s.model, provider: s.provider, caching: s.caching, ...(s.priceCeiling ? { priceCeiling: s.priceCeiling } : {}) }));
+// One plan per letter as dealt this game (with memory on, letters are dealt afresh, so a letter's model changes from game to game).
+const plans: SeatPlan[] = botIds.map((letter) => {
+  const s = seatOf(letter);
+  return {
+    botId: letter,
+    model: s.model,
+    provider: s.provider,
+    caching: s.caching,
+    ...(s.priceCeiling ? { priceCeiling: s.priceCeiling } : {}),
+    ...(s.measuredCacheShare !== undefined ? { measuredCacheShare: s.measuredCacheShare } : {}),
+    ...(s.tokenRatio !== undefined ? { tokenRatio: s.tokenRatio } : {}),
+  };
+});
 // Cache writes of the rulebook and notebook: once at the start, and again after each room (a reflection rewrites the notebook).
 const estimate = estimateCast(plans, prices, shapes, levels.length + 1);
+estimateCheck = (entries) => {
+  const lines: string[] = ['  Estimate check: the calls actually made, priced by the estimate (expected / charged):'];
+  let expectedUsd = 0;
+  let chargedUsd = 0;
+  for (const plan of plans) {
+    const mine = entries.filter((e) => e.botId === plan.botId);
+    if (mine.length === 0 || plan.provider === 'mock') continue;
+    const actual = shapes.map((s) => ({ ...s, callsPerGame: mine.filter((e) => s.phases?.includes(e.phase)).length }));
+    const expected = estimateSeat(plan, priceOf(prices, plan.model), actual, levels.length + 1).expectedUsd;
+    const charged = mine.reduce((n, e) => n + e.chargedUsd, 0);
+    expectedUsd += expected;
+    chargedUsd += charged;
+    lines.push(`    ${plan.botId} ${plan.model.padEnd(30)} ${String(mine.length).padStart(4)} calls  ${usd4(expected)} / ${usd4(charged)}  (${charged >= expected ? '+' : ''}${Math.round(((charged - expected) / Math.max(expected, 1e-9)) * 100)}%)`);
+  }
+  lines.push(`    All: ${usd4(expectedUsd)} / ${usd4(chargedUsd)}  (${chargedUsd >= expectedUsd ? '+' : ''}${Math.round(((chargedUsd - expectedUsd) / Math.max(expectedUsd, 1e-9)) * 100)}%)`);
+  return { expectedUsd, chargedUsd, lines };
+};
 const runCap = values['run-cap'] ? Number(values['run-cap']) : game.budget.runCapUsd;
-const caps = { ...capsFor(game, cast), runUsd: runCap };
+// A seat's own per-bot cap follows its agent to whichever letter it was dealt this game.
+const caps = {
+  ...capsFor(game, cast),
+  runUsd: runCap,
+  perBotOverrideUsd: Object.fromEntries(botIds.flatMap((letter) => {
+    const s = seatOf(letter);
+    return s.capUsd !== undefined ? [[letter, s.capUsd]] : [];
+  })),
+};
 
 say('');
-say(`Estimate (nothing spent yet): ${turnsPerSeat} turn calls and ${levels.length} reflection${levels.length === 1 ? '' : 's'} per bot.`);
+say(`Estimate (nothing spent yet), if every round of every room is played: ${turnsPerSeat} turn calls, ${levels.length} diary entr${levels.length === 1 ? 'y' : 'ies'} and ${levels.length} reflection${levels.length === 1 ? '' : 's'} per bot. Rooms that end sooner cost less.`);
 say(
   `  Prompts: about ${shapes[1]?.promptTokens} tokens a turn (${shapes[0]?.cacheableTokens} of them the cached rulebook and notebook, ` +
     `${(shapes[1]?.cacheableTokens ?? 0) - (shapes[0]?.cacheableTokens ?? 0)} the round's view, cached after its first call), about ${shapes[2]?.promptTokens} a reflection.`,
@@ -272,6 +406,16 @@ say(
     '.',
 );
 say('  If the next phase could break a cap, the game saves and stops before it.');
+// --check-run: the estimate check for a game already played, from its ledger. Give the same
+// --seed, --levels, --exile-from and memory options as that game had, so the prompts measured match.
+if (values['check-run']) {
+  const dir = resolve(values['check-run']);
+  const ledger = JSON.parse(readFileSync(join(dir, 'ledger.json'), 'utf8')) as { entries: LedgerEntry[] };
+  const check = estimateCheck?.(ledger.entries);
+  say('');
+  for (const l of check?.lines ?? []) say(l);
+  process.exit(0);
+}
 if (values['dry-run']) {
   say('');
   say('Dry run: nothing was spent.');
@@ -296,8 +440,9 @@ for (const s of cast.seats) priceOf(prices, s.model === 'mock' ? 'claude-haiku-5
 const ledger = new Ledger(runIdGuess, prices);
 const global = await GlobalSpend.open(join(PROJECT_ROOT, game.budget.spendFile), runIdGuess);
 const guard = new SpendGuard(caps, ledger, global);
-const agents: Agent[] = cast.seats.map((s) =>
-  s.provider === 'mock' ? new MockAgent(s.botId, seed) : new LlmAgent(s, { claude, router }, priceOf(prices, s.model)),
-);
-await playAndSave(agents, { guard, ledger, global }, caps.runUsd);
+const agents: Agent[] = botIds.map((letter) => {
+  const s = seatOf(letter);
+  return s.provider === 'mock' ? new MockAgent(letter, seed) : new LlmAgent(s, { claude, router }, priceOf(prices, s.model));
+});
+await remember(await playAndSave(agents, { guard, ledger, global }, caps.runUsd));
 process.exit(0);

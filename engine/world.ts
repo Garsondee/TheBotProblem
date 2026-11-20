@@ -47,7 +47,12 @@ export interface Bot extends Body {
   facing: 1 | -1;
   anim: Anim;
   exited: boolean;
+  /** Coins picked up in this room (by id). */
   coins: string[];
+  /** Coins the bot holds: carried from room to room by the game, spent and traded with trip, steal and give. */
+  purse: number;
+  /** Tripped by another bot: it loses its next command slot (spec 7.4). */
+  tripped: boolean;
 }
 
 export interface Crate extends Body {
@@ -61,7 +66,9 @@ export type WorldEvent =
   | { step: number; type: 'plate'; plate: string; pressed: boolean; weight: number; bots: number }
   | { step: number; type: 'door'; door: string; open: boolean }
   | { step: number; type: 'lever'; lever: string; on: boolean; by: string | null }
-  | { step: number; type: 'exit'; bot: string; exit: string; place: number };
+  | { step: number; type: 'exit'; bot: string; exit: string; place: number }
+  /** One bot doing something to another (spec 7.4). `by` is '?' in the anonymous announcement of harm. */
+  | { step: number; type: 'social'; action: 'trip' | 'steal' | 'give' | 'boost'; by: string; target: string; coins: number };
 
 export interface World {
   level: Level;
@@ -114,6 +121,8 @@ export function createWorld(level: Level, stats: Readonly<Record<string, BotStat
         anim: 'idle',
         exited: false,
         coins: [],
+        purse: 0,
+        tripped: false,
       };
     });
   return {

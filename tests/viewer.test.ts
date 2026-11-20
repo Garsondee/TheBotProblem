@@ -14,7 +14,7 @@ import { MemoryOutput } from '../game/output';
 import { loadGameConfig } from '../harness/config';
 import { loadLevels } from '../harness/levels';
 import type { GameData } from '../viewer/src/data';
-import { parseReplay, ReplayError } from '../viewer/src/data';
+import { authorOf, parseReplay, ReplayError } from '../viewer/src/data';
 import { beatAt, buildScript, TIMING } from '../viewer/src/script';
 import { RoomPlayback } from '../viewer/src/state';
 
@@ -112,8 +112,11 @@ describe('the viewer', () => {
           expect(b.bot).not.toBeNull();
           expect(b.dur).toBeGreaterThanOrEqual(TIMING.turnMin);
           expect(b.dur).toBeLessThanOrEqual(TIMING.turnMax);
-          expect(b.events.every((e) => 'from' in e && e.from === b.bot && e.phase === b.phase)).toBe(true);
+          // One author per turn (a rule's author is its proposer, `by`; authorOf knows each type's).
+          expect(b.events.every((e) => authorOf(e) === b.bot && e.phase === b.phase)).toBe(true);
         }
+        // A public outcome stands alone: nobody's turn.
+        if (b.kind === 'announce') expect(b.events.map((e) => e.type)).toEqual([expect.stringMatching(/^(rule|exile_result)$/)]);
         if (b.kind === 'resolve' && b.resolve) expect(b.dur).toBeGreaterThanOrEqual(b.resolve.trace.steps / 60);
       }
       expect(script.total).toBeCloseTo(t, 6);

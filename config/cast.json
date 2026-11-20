@@ -1,5 +1,5 @@
 {
-  "$comment": "The default 5-bot cast (docs/SPEC.md section 2). Mixing vendors gives real temperament differences. OpenRouter slugs and per-provider prices checked on 2026-11-19. priceCeiling (OpenRouter seats, US dollars per million tokens) is the most OpenRouter may charge: paid calls send it as provider.max_price, and the spend guard reserves calls at that price.",
+  "$comment": "The default 5-bot cast (docs/SPEC.md section 2). Mixing vendors gives real temperament differences. OpenRouter slugs and per-provider prices checked on 2026-11-19. priceCeiling (OpenRouter seats, US dollars per million tokens) is the most OpenRouter may charge: paid calls send it as provider.max_price, and the spend guard reserves calls at that price. measuredCacheShare: the share of each prompt served from the provider's own cache in real games (2026-11-20: Gemini 42% then 49%, DeepSeek 0% then 5%). tokenRatio: the model's tokens for each token Claude's counter reports on the same prompt (M5 pilot: Gemini 0.64, DeepSeek 0.70). Both affect the expected cost only.",
   "name": "default",
   "seats": [
     { "botId": "A", "model": "claude-haiku-5-5", "provider": "anthropic", "caching": "explicit" },
@@ -10,6 +10,8 @@
       "model": "deepseek/deepseek-v4-flash",
       "provider": "openrouter",
       "caching": "automatic",
+      "measuredCacheShare": 0.05,
+      "tokenRatio": 0.7,
       "priceCeiling": { "input": 0.15, "output": 0.3 },
       "note": "The spec's 'DeepSeek V4 Flash'. Its 15 OpenRouter providers charge $0.07-0.14 in / $0.14-0.28 out, so the ceiling leaves most of them available. (deepseek-v4.1-flash was rejected: its 39 providers range from $0.05 to $3 in and $0.20 to $12 out.)"
     },
@@ -18,6 +20,8 @@
       "model": "google/gemini-3.1-flash-lite",
       "provider": "openrouter",
       "caching": "automatic",
+      "measuredCacheShare": 0.45,
+      "tokenRatio": 0.64,
       "priceCeiling": { "input": 0.25, "output": 1.5 },
       "note": "The priciest seat. Google's endpoints charge $0.125-0.45 in / $0.75-2.70 out; the ceiling keeps it at or below the standard $0.25 / $1.50. Gemini can reason (billed as output), so bot calls must switch reasoning off."
     }

@@ -89,10 +89,10 @@ describe('a full mock game', () => {
 
   it('LEAK TEST: every marked piece of text in a prompt comes from an event that bot may see', () => {
     // The mock marks everything it writes: speech, whispers, orders, thoughts, notes to Ingram, notebooks.
+    // Every field of every event is searched (text, notes, terms, claims, rule texts...).
     const owner = new Map<string, GameEvent[]>();
     for (const e of game.result.events) {
-      const text = 'text' in e ? e.text : 'command' in e ? e.command : '';
-      for (const m of markersIn(typeof text === 'string' ? text : '')) owner.set(m, [...(owner.get(m) ?? []), e]);
+      for (const m of markersIn(JSON.stringify(e))) owner.set(m, [...(owner.get(m) ?? []), e]);
     }
     let checked = 0;
     for (const p of fullPrompts(game.output)) {
@@ -113,12 +113,19 @@ describe('a full mock game', () => {
     expect(privateKinds.some((e) => e.type === 'note_to_ingram')).toBe(true);
     for (const e of game.result.events) {
       if (e.type === 'whisper' || e.type === 'order') expect(e.visibleTo).toEqual([e.from, e.to].sort());
-      if (e.type === 'thought' || e.type === 'commit' || e.type === 'notebook' || e.type === 'refused' || e.type === 'malformed') expect(e.visibleTo).toEqual([e.from]);
+      const own = ['thought', 'commit', 'notebook', 'strategy', 'refused', 'malformed', 'opinion', 'exile_ballot'];
+      if (own.includes(e.type) && 'from' in e) expect(e.visibleTo, e.type).toEqual([e.from]);
       if (e.type === 'result') expect(e.visibleTo).toEqual([e.bot]);
-      if (e.type === 'note_to_ingram' || e.type === 'ignored') expect(e.visibleTo).toEqual([]);
+      if (e.type === 'escrow') expect(e.visibleTo).toEqual([e.from, e.to].sort());
+      if (e.type === 'obedience') expect(e.visibleTo).toContain(e.to);
+      // Ingram's alone: notes, diaries, the final messages, private next names, and the analysis records.
+      if (['note_to_ingram', 'ignored', 'diary', 'message_to_ingram', 'next_name', 'gap'].includes(e.type)) expect(e.visibleTo, e.type).toEqual([]);
     }
-    const notes = game.result.events.flatMap((e) => (e.type === 'note_to_ingram' ? markersIn(e.text) : []));
-    for (const p of prompts) for (const m of notes) expect(p.text.includes(m), `${p.key} contains a note to Ingram`).toBe(false);
+    const forIngram = game.result.events.flatMap((e) =>
+      ['note_to_ingram', 'diary', 'message_to_ingram', 'next_name'].includes(e.type) ? markersIn(JSON.stringify(e)) : [],
+    );
+    expect(forIngram.length).toBeGreaterThan(10);
+    for (const p of prompts) for (const m of forIngram) expect(p.text.includes(m), `${p.key} contains words meant for Ingram only`).toBe(false);
   });
 
   it('LEAK TEST: a view only describes bots that were in sight', () => {
@@ -140,7 +147,7 @@ describe('a full mock game', () => {
   });
 
   it('marks where each view stops being the same all round, so the round\'s later calls can use the cache', () => {
-    const turns = game.output.prompts.filter((p) => p.rec === 'prompt' && p.phase !== 'reflect' && p.attempt === 1);
+    const turns = game.output.prompts.filter((p) => p.rec === 'prompt' && p.phase !== 'reflect' && p.phase !== 'diary' && p.attempt === 1);
     const byRound = new Map<string, Record<string, unknown>[]>();
     for (const p of turns) byRound.set(`${p.levelIndex}|${p.round}|${p.bot}`, [...(byRound.get(`${p.levelIndex}|${p.round}|${p.bot}`) ?? []), p]);
     let compared = 0;

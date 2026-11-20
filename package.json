@@ -20,6 +20,7 @@
     "levels": "tsx harness/cli/levels.ts",
     "format-test": "tsx harness/cli/formatTest.ts",
     "game": "tsx harness/cli/game.ts",
+    "direct": "tsx harness/cli/direct.ts",
     "view": "vite --config viewer/vite.config.ts --open"
   },
   "devDependencies": {

@@ -28,7 +28,8 @@ export interface Prompt {
 
 export interface AgentRequest {
   kind: 'turn' | 'reflection';
-  phase: Phase | 'reflect';
+  /** declare, talk or commit for turns; at a room's end, 'diary' (the diary room) then 'reflect' (notebook and strategy). */
+  phase: Phase | 'reflect' | 'diary';
   levelIndex: number;
   level: string;
   round: number;

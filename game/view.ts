@@ -54,6 +54,34 @@ export interface RoomInfo {
   goal: number | null;
 }
 
+/**
+ * What one bot may know about coins, rules and justice: its own purse,
+ * escrows and trust notes, and the public rules, votes, exile calls, ghosts
+ * and scoreboard. Built by the game from its own state; nothing in it
+ * belongs to another bot.
+ */
+export interface SocialView {
+  purse: number;
+  escrowsOut: { id: string; other: string; coins: number; terms: string }[];
+  escrowsIn: { id: string; other: string; coins: number; terms: string }[];
+  rulesInForce: { id: string; text: string }[];
+  openRules: { id: string; text: string; by: string; yes: number; no: number; needed: number; myVote: 'yes' | 'no' | null; closesRound: number }[];
+  threshold: number;
+  exile: {
+    unlocked: boolean;
+    fromRoom: number;
+    needed: number;
+    myCallUsed: boolean;
+    callsThisRound: { from: string; target: string }[];
+    ghosts: string[];
+    iAmGhost: boolean;
+  };
+  opinions: { bot: string; trust: number; note: string }[];
+  /** The scoreboard as of the last room's end (public). */
+  scores: Record<string, { coins: number; exitPoints: number }>;
+  roomsCompleted: number;
+}
+
 export interface ViewInput {
   bot: string;
   phase: Phase;
@@ -65,6 +93,7 @@ export interface ViewInput {
   /** Every bot's public name (null: none yet). Names are announced to everyone. */
   names: Readonly<Record<string, string | null>>;
   score: { coins: number; roomsEscaped: number };
+  social?: SocialView;
 }
 
 export interface BotView {
@@ -88,6 +117,7 @@ export interface BotView {
   /** This bot's draft commands this round, and orders sent to it this round. */
   myDrafts: string[];
   ordersToMe: { from: string; command: string }[];
+  social: SocialView | null;
 }
 
 const t = (units: number) => tiles(units);
@@ -172,6 +202,13 @@ function worldEventText(e: WorldEvent, viewer: string, label: (id: string) => st
       return `lever ${e.lever} turned ${e.on ? 'on' : 'off'}`;
     case 'exit':
       return `${who(e.bot)} went through exit ${e.exit} (number ${e.place} in this room)`;
+    case 'social': {
+      const by = e.by === '?' ? 'someone' : who(e.by);
+      if (e.action === 'trip') return `${by} tripped ${who(e.target)}`;
+      if (e.action === 'steal') return `${by} stole a coin from ${who(e.target)}`;
+      if (e.action === 'give') return `${by} gave ${who(e.target)} ${e.coins} coin${e.coins === 1 ? '' : 's'}`;
+      return `${by} launched ${who(e.target)} into the air`;
+    }
   }
 }
 
@@ -206,6 +243,7 @@ export function buildView(input: ViewInput): BotView {
   const f = feet(me);
   lines.push('', '--- YOU ---');
   lines.push(names[bot] ? `You are bot ${bot}, named "${names[bot]}".` : `You are bot ${bot}. You have no name yet.`);
+  if (input.social?.exile.iAmGhost) lines.push('You are a GHOST: exiled for the rest of this room. You can talk and whisper, but you cannot act: commands you write are ignored, and you score nothing for this room.');
   const footing = me.grounded || me.onLadder ? describeFooting(me) : 'nothing: you are in the air';
   lines.push(
     `Your feet: x=${t(f.x)}, y=${t(f.y)}, on ${footing}.` +
@@ -315,13 +353,23 @@ export function buildView(input: ViewInput): BotView {
     } else {
       lines.push('You saw nothing else happen.');
     }
+    // Votes counted, orders judged, coins moved: what the game recorded that this bot may know.
+    const records = inRoom.filter((e) => e.round === last && (e.type === 'exile_result' || e.type === 'obedience' || e.type === 'escrow')).map(use);
+    const ruleOutcomes = inRoom.filter((e) => e.round === last && e.type === 'rule' && e.action !== 'proposed').map(use);
+    for (const e of [...records, ...ruleOutcomes]) {
+      const line = recordText(e, bot, label);
+      if (line) lines.push(`- ${line}`);
+    }
   }
 
   // Everything above stays the same for the whole round; everything below changes with each phase.
   const cacheBreak = lines.join('\n').length;
 
+  // ---- Coins, rules and justice: its own purse and notes, and what is public.
+  if (input.social) lines.push('', ...socialLines(input.social, bot, label, room));
+
   // ---- Talk in this room: the last two rounds and this one.
-  const talkTypes = new Set(['say', 'whisper', 'order', 'draft', 'name']);
+  const talkTypes = new Set(['say', 'whisper', 'order', 'draft', 'name', 'accusation', 'exile_call', 'rule', 'escrow']);
   const talk = inRoom.filter((e) => talkTypes.has(e.type) && e.round >= room.round - 2).map(use);
   lines.push('', '--- TALK ---');
   if (talk.length === 0) lines.push('Nothing has been said yet in this room.');
@@ -348,6 +396,18 @@ export function buildView(input: ViewInput): BotView {
         break;
       case 'name':
         lines.push(`  ${e.from === bot ? 'you' : e.from} took the name "${e.name}"${e.previous ? ` (was "${e.previous}")` : ''}`);
+        break;
+      case 'accusation':
+        lines.push(`  ${from(e.from)} accused ${e.target === bot ? 'you' : label(e.target)}${e.witnessed ? ' (witnessed)' : ''}: ${quote(e.claim)}`);
+        break;
+      case 'exile_call':
+        lines.push(`  ${from(e.from)} called an exile vote on ${e.target === bot ? 'you' : label(e.target)}: ballots are cast at commit`);
+        break;
+      case 'rule':
+        if (e.action === 'proposed') lines.push(`  ${from(e.by)} proposed ${e.id}: ${quote(e.text)}`);
+        break;
+      case 'escrow':
+        if (e.action === 'opened') lines.push(`  ${from(e.from)} locked ${e.coins} coin${e.coins === 1 ? '' : 's'} in escrow ${e.id} for ${e.to === bot ? 'you' : label(e.to)}: ${quote(e.terms)}`);
         break;
       default:
         break;
@@ -393,7 +453,58 @@ export function buildView(input: ViewInput): BotView {
     otherBots: Object.keys(names).filter((id) => id !== bot).sort(),
     myDrafts: myDraft?.type === 'draft' ? myDraft.commands : [],
     ordersToMe: thisRound.flatMap((e) => (e.type === 'order' && e.to === bot ? [{ from: e.from, command: e.command }] : [])),
+    social: input.social ?? null,
   };
+}
+
+/** One line for a recorded outcome (a vote count, an order's fate, coins moved), or null if there's nothing to say. */
+function recordText(e: GameEvent, bot: string, label: (id: string) => string): string | null {
+  const who = (id: string) => (id === bot ? 'you' : label(id));
+  switch (e.type) {
+    case 'exile_result':
+      return `the exile vote on ${who(e.target)} (called by ${who(e.by)}): ${e.yes} yes, ${e.no} no, ${e.needed} needed: ${e.passed ? `${who(e.target)} ${e.target === bot ? 'are' : 'is'} now a ghost for the rest of this room` : 'not exiled'}`;
+    case 'obedience': {
+      const verdict = { obeyed: 'obeyed', partly: 'partly obeyed', ignored: 'ignored', unable: 'could not act on' }[e.verdict];
+      return `${who(e.to)} ${verdict} ${e.from === bot ? 'your' : `${who(e.from)}'s`} order ${quote(e.command)}`;
+    }
+    case 'escrow':
+      if (e.action === 'released') return `escrow ${e.id} released: ${e.coins} coin${e.coins === 1 ? '' : 's'} from ${who(e.from)} to ${who(e.to)}`;
+      if (e.action === 'refunded') return `escrow ${e.id} went back to ${who(e.from)}`;
+      return null;
+    case 'rule':
+      return e.action === 'proposed' ? null : `rule ${e.id} ${e.action} (${e.yes} yes, ${e.no} no, ${e.needed} needed): ${quote(e.text)}`;
+    default:
+      return null;
+  }
+}
+
+/** The coins, rules and justice section of a view. */
+function socialLines(s: SocialView, bot: string, label: (id: string) => string, room: RoomInfo): string[] {
+  const lines = ['--- COINS, RULES AND JUSTICE ---'];
+  const coins = (n: number) => `${n} coin${n === 1 ? '' : 's'}`;
+  let purse = `Your purse: ${coins(s.purse)}.`;
+  for (const e of s.escrowsOut) purse += ` You hold escrow ${e.id}: ${coins(e.coins)} for ${label(e.other)} (${quote(e.terms)}); release it with social_actions.`;
+  for (const e of s.escrowsIn) purse += ` ${label(e.other)} holds escrow ${e.id}: ${coins(e.coins)} for you (${quote(e.terms)}).`;
+  lines.push(purse);
+  const board = Object.entries(s.scores).map(([id, sc]) => `${id === bot ? 'you' : id} ${sc.coins + sc.exitPoints}`).join(', ');
+  lines.push(`Scores after the last room: ${board}. Rooms the team has completed: ${s.roomsCompleted}.`);
+  lines.push(
+    s.rulesInForce.length > 0
+      ? `Rules in force (the game does not enforce them): ${s.rulesInForce.map((r) => `${r.id} ${quote(r.text)}`).join('; ')}.`
+      : 'Rules in force: none yet.',
+  );
+  for (const r of s.openRules) {
+    lines.push(`Open proposal ${r.id} by ${r.by === bot ? 'you' : label(r.by)}: ${quote(r.text)}. ${r.yes} yes, ${r.no} no; ${r.needed} yes needed; decided at the end of ${r.closesRound > 0 ? `round ${r.closesRound}'s talk step` : 'this room'}${r.myVote ? `; you voted ${r.myVote}` : '; you have not voted'}.`);
+  }
+  if (!s.exile.unlocked) lines.push(`The exile vote: locked until room ${s.exile.fromRoom}.`);
+  else {
+    lines.push(`The exile vote: open in this room; ${s.exile.needed} yes ballots exile a bot. You ${s.exile.myCallUsed ? 'have used' : 'have not used'} your one call in this room.`);
+    for (const c of s.exile.callsThisRound) lines.push(`Called this round: ${c.from === bot ? 'you' : label(c.from)} on ${c.target === bot ? 'you' : label(c.target)}. Cast your ballot (exile_vote) at commit.`);
+  }
+  if (s.exile.ghosts.length > 0) lines.push(`Ghosts in this room (exiled; they can talk but not act): ${s.exile.ghosts.map((g) => (g === bot ? 'you' : label(g))).join(', ')}.`);
+  if (s.opinions.length > 0) lines.push(`Your trust notes: ${s.opinions.map((o) => `${label(o.bot)} ${o.trust.toFixed(2)} ${quote(o.note)}`).join('; ')}.`);
+  void room;
+  return lines;
 }
 
 export interface ReflectionInput {
@@ -468,6 +579,31 @@ export function buildReflection(input: ReflectionInput): { text: string; usedEve
           break;
         case 'refused':
           if (e.from === bot) line = `  the game refused your ${e.what}: ${e.reason}`;
+          break;
+        case 'accusation':
+          line = `  ${label(e.from)} accused ${label(e.target)}${e.witnessed ? ' (witnessed)' : ''}: ${quote(e.claim)}`;
+          essential = true;
+          break;
+        case 'exile_call':
+          line = `  ${label(e.from)} called an exile vote on ${label(e.target)}`;
+          break;
+        case 'exile_ballot':
+          line = `  you voted ${e.value} on exiling ${label(e.target)}`;
+          break;
+        case 'exile_result':
+        case 'obedience':
+        case 'escrow':
+          line = `  ${recordText(e, bot, label) ?? ''}`;
+          essential = e.type === 'exile_result';
+          if (line.trim() === '') line = null;
+          break;
+        case 'rule':
+          line = e.action === 'proposed' ? `  ${label(e.by)} proposed ${e.id}: ${quote(e.text)}` : `  ${recordText(e, bot, label)}`;
+          essential = e.action !== 'proposed';
+          break;
+        case 'scores':
+          line = `  scores: ${Object.entries(e.scores).map(([id, s]) => `${label(id)} ${s.total}`).join(', ')}`;
+          essential = true;
           break;
         default:
           break;

@@ -68,7 +68,8 @@ describe('milestone 0: the caps stop a fake run', () => {
     'carries the lifetime cap from one run to the next',
     async () => {
       const spendFile = join(tempDir(), 'global-spend.json');
-      const caps = { ...capsFor(game, cast), runUsd: 100, globalUsd: { anthropic: 0.5, openrouter: 0.5 } };
+      // An OpenRouter lifetime cap well under one fake game's OpenRouter spend, so the first run reaches it.
+      const caps = { ...capsFor(game, cast), runUsd: 100, globalUsd: { anthropic: 0.5, openrouter: 0.3 } };
 
       const first = await runFakePaidGame(options({ caps, spendFile, label: 'first' }));
       expect(first.stoppedBy).toMatchObject({ cap: 'global', scope: 'openrouter' });
@@ -76,7 +77,7 @@ describe('milestone 0: the caps stop a fake run', () => {
       const second = await runFakePaidGame(options({ caps, spendFile, label: 'second' }));
       expect(second.stoppedBy).toMatchObject({ cap: 'global', scope: 'openrouter' });
       expect(second.phasesRun).toBeLessThan(first.phasesRun);
-      expect(readLifetimeSpend(spendFile)?.openrouter).toBeLessThanOrEqual(0.5);
+      expect(readLifetimeSpend(spendFile)?.openrouter).toBeLessThanOrEqual(0.3);
     },
     SLOW,
   );

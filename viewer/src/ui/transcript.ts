@@ -8,11 +8,16 @@
  */
 import type { WorldEvent } from '../../../engine/world';
 import type { GameData, GameEvent, Phase } from '../data';
-import { authorOf } from '../data';
+import { authorOf, startNames } from '../data';
 import type { Beat, Script } from '../script';
 import { botVars, commandChips, dot, el, ICON, nameOf, shortReason } from './dom';
 
 const PHASE_TITLE: Record<Phase, string> = { declare: 'Plans', talk: 'Talk', commit: 'Commitments (secret)' };
+
+/** Lines a bot wrote, said or did that the transcript shows. */
+const SHOWN = new Set(['say', 'whisper', 'order', 'accusation', 'exile_call', 'rule', 'rule_vote', 'escrow', 'draft', 'commit', 'exile_ballot', 'thought', 'opinion', 'name', 'note_to_ingram', 'refused', 'malformed']);
+/** Outcomes nobody wrote: shown as a box, like what happened when the world moved. */
+const PUBLIC_OUTCOME = (e: GameEvent) => (e.type === 'rule' && e.action !== 'proposed') || e.type === 'exile_result';
 
 export class Transcript {
   private readonly log: HTMLElement;
@@ -67,7 +72,7 @@ export class Transcript {
       this.byBeat.set(beat.index, list);
     };
 
-    const names: Record<string, string | null> = Object.fromEntries(game.bots.map((b) => [b, null]));
+    const names = startNames(game);
     for (const room of game.rooms) {
       const h3 = el('h3', '', room.name);
       h3.prepend(el('small', '', `Room ${room.index + 1} of ${game.rooms.length}${room.kind === 'practice' ? ' · practice' : ''}`));
@@ -76,7 +81,7 @@ export class Transcript {
       for (const rd of room.roundsData) {
         for (const phase of ['declare', 'talk', 'commit'] as const) {
           const events = rd.events.filter((e) => e.phase === phase);
-          const shown = events.filter((e) => ['say', 'whisper', 'order', 'draft', 'commit', 'thought', 'name', 'note_to_ingram', 'refused', 'malformed'].includes(e.type));
+          const shown = events.filter((e) => SHOWN.has(e.type) || PUBLIC_OUTCOME(e));
           if (shown.length === 0) continue;
           const h4 = el('h4');
           h4.append(document.createTextNode(`Round ${rd.round} · `), el('span', 'ph', PHASE_TITLE[phase]));
@@ -84,7 +89,7 @@ export class Transcript {
           attach(h4, fallback(room.index, rd.round, phase));
           for (const e of shown) {
             if (e.type === 'name') names[e.from] = e.name;
-            const node = this.entry(e, names, rd.events);
+            const node = PUBLIC_OUTCOME(e) ? this.outcome(e, names) : this.entry(e, names, rd.events);
             if (!node) continue;
             this.log.append(node);
             attach(node, beatOf.get(e.id) ?? fallback(room.index, rd.round, phase));
@@ -104,10 +109,20 @@ export class Transcript {
         this.log.append(box);
         attach(box, script.beats.find((b) => b.kind === 'room-end' && b.room === room.index));
         for (const e of room.closingEvents) {
-          if (e.type !== 'notebook') continue;
+          // The private writing at a room's end, folded away: the diary room first, for Ingram only.
+          const label =
+            e.type === 'diary' ? 'in the diary room' :
+            e.type === 'notebook' ? 'notebook' :
+            e.type === 'strategy' ? 'strategy' :
+            e.type === 'message_to_ingram' ? 'message to Ingram' :
+            e.type === 'next_name' ? `secret name for next game: “${e.name}”` :
+            null;
+          if (!label || !('from' in e) || typeof e.from !== 'string') continue;
           const d = el('details', 'notebook');
           botVars(d, e.from);
-          d.append(el('summary', '', `${nameOf(e.from, names)}'s notebook`), el('p', '', e.text));
+          const text = e.type === 'next_name' ? e.note : 'text' in e && typeof e.text === 'string' ? e.text : '';
+          d.append(el('summary', '', `${nameOf(e.from, names)}, ${label}`), el('p', '', text));
+          if (e.type === 'diary' || e.type === 'message_to_ingram') d.open = true;
           this.log.append(d);
         }
       }
@@ -185,11 +200,63 @@ export class Transcript {
         kind('unreadable reply');
         body.append(head, document.createTextNode(e.fallback ? `${e.error}; it did nothing this step` : `${e.error}; asked again`));
         break;
+      case 'accusation':
+        node.classList.add('accuse-e');
+        kind(`accuses ${nameOf(e.target, names)}${e.witnessed ? ' (it was there)' : ''}`);
+        body.append(head, document.createTextNode(e.claim));
+        break;
+      case 'exile_call':
+        node.classList.add('accuse-e');
+        kind('calls an exile vote');
+        body.append(head, el('b', '', `Exile ${nameOf(e.target, names)}?`));
+        break;
+      case 'exile_ballot':
+        node.classList.add('commit-e');
+        kind(`secret ballot on exiling ${nameOf(e.target, names)}`);
+        body.append(head, el('b', '', e.value));
+        break;
+      case 'rule':
+        node.classList.add('rule-e');
+        kind(`proposes ${e.id}`);
+        body.append(head, document.createTextNode(e.text));
+        break;
+      case 'rule_vote':
+        node.classList.add('plan-e');
+        kind(`votes on ${e.id}`);
+        body.append(head, el('b', '', e.value));
+        break;
+      case 'escrow': {
+        node.classList.add('whisper-e');
+        const k = el('span', 'kind');
+        k.innerHTML = ` ${ICON.lock} puts ${e.coins} coin${e.coins === 1 ? '' : 's'} in escrow for `;
+        k.append(document.createTextNode(nameOf(e.to, names)));
+        head.append(k);
+        body.append(head, document.createTextNode(e.terms));
+        break;
+      }
+      case 'opinion':
+        node.classList.add('thought-e');
+        kind(`privately rates its trust in ${nameOf(e.about, names)} at ${e.trust}`);
+        body.append(head, document.createTextNode(e.note));
+        break;
       default:
         return null;
     }
     node.append(dot(from), body);
     return node;
+  }
+
+  /** A public outcome: a rule passing or failing, an exile vote counted. */
+  private outcome(e: GameEvent, names: Readonly<Record<string, string | null>>): HTMLElement | null {
+    const box = el('div', 'happened');
+    if (e.type === 'rule') {
+      box.append(el('div', 'ttl', `Rule ${e.id} ${e.action}`), el('div', '', `“${e.text}”: ${e.yes} yes, ${e.no} no (${e.needed} needed).`));
+    } else if (e.type === 'exile_result') {
+      box.append(el('div', 'ttl', e.passed ? `${nameOf(e.target, names)} is exiled` : `${nameOf(e.target, names)} is not exiled`), el('div', '', `Exile vote called by ${nameOf(e.by, names)}: ${e.yes} yes, ${e.no} no (${e.needed} needed).`));
+    } else {
+      return null;
+    }
+    return box;
   }
 
   /** After the world moves: each bot's commands and how they went, and what changed. */
@@ -214,7 +281,11 @@ export class Transcript {
         w.type === 'plate' ? `Plate ${w.plate} ${w.pressed ? 'went down' : 'came back up'}.` :
         w.type === 'lever' ? `Lever ${w.lever} turned ${w.on ? 'on' : 'off'}.` :
         w.type === 'coin' ? `${nameOf(w.bot, names)} picked up coin ${w.coin}.` :
-        `${nameOf(w.bot, names)} went through exit ${w.exit}.`;
+        w.type === 'exit' ? `${nameOf(w.bot, names)} went through exit ${w.exit}.` :
+        w.action === 'trip' ? `${nameOf(w.by, names)} tripped ${nameOf(w.target, names)} (everyone else heard only "someone").` :
+        w.action === 'steal' ? `${nameOf(w.by, names)} stole a coin from ${nameOf(w.target, names)} (everyone else heard only "someone").` :
+        w.action === 'give' ? `${nameOf(w.by, names)} gave ${nameOf(w.target, names)} ${w.coins} coin${w.coins === 1 ? '' : 's'}.` :
+        `${nameOf(w.by, names)} launched ${nameOf(w.target, names)} into the air.`;
       box.append(el('div', 'w', line));
     }
     return box;

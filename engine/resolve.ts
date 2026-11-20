@@ -152,6 +152,10 @@ export function resolvePhase(
   for (let slot = 1; slot <= MAX_SLOTS; slot++) {
     const running: { c: Controller; text: string; from: { x: number; y: number }; startStep: number }[] = [];
     let anyCommand = false;
+    // Trips already pending when this slot starts cost a slot now. A trip made during this slot costs the
+    // target its NEXT slot, whichever bot happens to be handled first: all of a slot's commands start together.
+    const trippedNow = new Set(world.bots.filter((b) => b.tripped).map((b) => b.id));
+    const usedTrip = new Set<string>();
     for (const bot of world.bots) {
       const text = queues[bot.id]?.[slot - 1];
       if (text === undefined) continue;
@@ -163,6 +167,12 @@ export function resolvePhase(
       }
       if (stopped.has(bot.id)) {
         results.push({ ...base, parsed: null, status: 'skipped', reason: 'skipped: an earlier command this turn failed' });
+        continue;
+      }
+      if (trippedNow.has(bot.id)) {
+        // A trip costs exactly one slot; the rest of the queue still runs.
+        usedTrip.add(bot.id);
+        results.push({ ...base, parsed: null, status: 'skipped', reason: 'you were tripped, and lost this slot' });
         continue;
       }
       const parsed = parseCommand(text);
@@ -180,8 +190,13 @@ export function resolvePhase(
           if (leversBefore[id] !== on) events.push({ step: world.step + 1, type: 'lever', lever: id, on, by: bot.id });
         }
       }
+      // Trips, thefts, gifts and boosts happen the moment they start: log them at this slot's first step.
+      for (const e of c.events) events.push({ ...e, step: world.step + 1 });
       running.push({ c, text, from: base.from, startStep: world.step });
     }
+    // A trip that cost a slot is used up, unless the bot was tripped again during this slot.
+    const renewed = new Set(running.flatMap(({ c }) => c.events.filter((e) => e.type === 'social' && e.action === 'trip').map((e) => (e.type === 'social' ? e.target : ''))));
+    for (const b of world.bots) if (usedTrip.has(b.id) && !renewed.has(b.id)) b.tripped = false;
     if (!anyCommand) break;
 
     // Step until every command is settled and everything has stopped moving.

@@ -20,10 +20,19 @@ export type CallKind = 'turn' | 'reflection' | 'diary' | 'finalMessage';
 /** One kind of model call, as one bot makes it over a whole game. */
 export interface CallShape {
   kind: CallKind;
+  /** The game phases whose calls have this shape (as the ledger records them), for checking an estimate afterwards. */
+  phases?: readonly string[];
   callsPerGame: number;
   promptTokens: number;
   /** The stable start of the prompt that can be served from cache. */
   cacheableTokens: number;
+  /**
+   * Calls of this kind never find their prefix in the cache, so they write it
+   * every time. Measured (2026-11-20): the reply's JSON schema is part of what
+   * the cache matches, so a diary or reflection call (its own schema) can't
+   * read what the turn calls cached.
+   */
+  freshCache?: boolean;
   expectedOutputTokens: number;
   maxOutputTokens: number;
 }
@@ -113,6 +122,14 @@ export interface SeatPlan {
   caching: CachingMode;
   /** OpenRouter seats: the most OpenRouter may charge. The worst case is priced at this. */
   priceCeiling?: PriceCeiling;
+  /** "automatic" seats: the share of each prompt measured coming from the provider's cache (expected cost only). */
+  measuredCacheShare?: number;
+  /**
+   * The model's tokens for each token Claude's counter reports on the same
+   * prompt (measured; prompts are counted with Claude's counter). Expected
+   * cost only: the worst case keeps Claude's count, the larger.
+   */
+  tokenRatio?: number;
 }
 
 export interface SeatEstimate extends SeatPlan {
@@ -135,8 +152,15 @@ export function estimateSeat(
     caches = false;
     notes.push(`the cacheable prefix is shorter than ${seat.model}'s ${minimum}-token minimum, so nothing would be cached`);
   }
+  if (seat.tokenRatio !== undefined && seat.tokenRatio !== 1) {
+    notes.push(`its tokenizer counts about ${Math.round(seat.tokenRatio * 100)}% as many tokens as Claude's on these prompts (measured)`);
+  }
   if (seat.caching === 'automatic') {
-    notes.push('the provider may cache prompts on its own; not counted on here, so the real cost may be lower');
+    notes.push(
+      seat.measuredCacheShare !== undefined
+        ? `the provider caches on its own: counted at the ${Math.round(seat.measuredCacheShare * 100)}% of each prompt measured in real games`
+        : 'the provider may cache prompts on its own; not counted on here, so the real cost may be lower',
+    );
   }
   if (seat.priceCeiling && (price.input > seat.priceCeiling.input || price.output > seat.priceCeiling.output)) {
     notes.push("OpenRouter's listed price is above this seat's priceCeiling, so calls may find no provider cheap enough");
@@ -147,21 +171,27 @@ export function estimateSeat(
   let expected = 0;
   let worst = 0;
   let writesLeft = caches ? cacheWritesPerGame : 0;
-  for (const s of shapes) {
-    calls += s.callsPerGame;
-    worst += s.callsPerGame * worstCaseCallUsd(worstPrice, s.promptTokens, s.maxOutputTokens);
+  for (const raw of shapes) {
+    calls += raw.callsPerGame;
+    worst += raw.callsPerGame * worstCaseCallUsd(worstPrice, raw.promptTokens, raw.maxOutputTokens);
 
+    // This model's own token count for the same prompt.
+    const ratio = seat.tokenRatio ?? 1;
+    const s = { ...raw, promptTokens: Math.round(raw.promptTokens * ratio), cacheableTokens: Math.round(raw.cacheableTokens * ratio) };
     const cached = caches ? Math.min(s.cacheableTokens, s.promptTokens) : 0;
-    const uncached = s.promptTokens - cached;
+    // A provider that caches by itself: the measured share of each prompt is read from its cache (no writes billed).
+    const automatic = seat.caching === 'automatic' && seat.measuredCacheShare !== undefined ? Math.round(s.promptTokens * seat.measuredCacheShare) : 0;
+    const uncached = s.promptTokens - cached - automatic;
     // Cache writes happen on the first calls of the game and after each
     // reflection; booking them all against the turn calls is close enough.
-    const writes = Math.min(writesLeft, s.callsPerGame);
-    writesLeft -= writes;
+    const writes = s.freshCache ? s.callsPerGame : Math.min(writesLeft, s.callsPerGame);
+    if (!s.freshCache) writesLeft -= writes;
     const reads = s.callsPerGame - writes;
     const perMillionTotal =
       s.callsPerGame * (uncached * price.input + s.expectedOutputTokens * price.output) +
       reads * cached * (price.cacheRead ?? price.input) +
-      writes * cached * (price.cacheWrite5m ?? price.input);
+      writes * cached * (price.cacheWrite5m ?? price.input) +
+      s.callsPerGame * automatic * (price.cacheRead ?? price.input);
     // No long-context multiplier here: prompts are asserted to stay far below it.
     expected += perMillionTotal / 1_000_000;
   }
